@@ -24,6 +24,7 @@ test('Pages catalog is fictional, contact-free, and uses the repository asset pr
   assert.equal(identity.role, 'GUEST');
   assert.equal(identity.mode, 'demo');
   assert.equal(identity.mockAccountSwitchingEnabled, false);
+  assert.deepEqual(await demoApiFetch('/api/appearance'), { theme: 'modern-minimal' });
   items[0].name = 'Changed locally';
   assert.notEqual((await demoApiFetch('/api/categories')).items[0].name, 'Changed locally');
 });
@@ -34,7 +35,7 @@ test('Pages API rejects writes and private paths without ever using the network'
   globalThis.fetch = async () => { networkCalls++; throw new Error('Network must not be used'); };
   try {
     await demoApiFetch('/api/categories');
-    for (const path of ['/api/orders', '/api/orders/guess/delivery', '/api/admin/categories', '/api/dev/email-outbox', '/uploads/private.png', '/api/categories/unknown', 'https://example.test/api/categories']) {
+    for (const path of ['/api/orders', '/api/orders/guess/delivery', '/api/admin/categories', '/api/admin/appearance', '/api/dev/email-outbox', '/uploads/private.png', '/api/categories/unknown', 'https://example.test/api/categories']) {
       await assert.rejects(demoApiFetch(path), { message: demoNotice });
     }
     for (const method of ['POST', 'PUT', 'DELETE', 'PATCH']) {

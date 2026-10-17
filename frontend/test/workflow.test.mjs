@@ -8,7 +8,7 @@ import { createCartStore, createAuthStore, cartStore, authStore } from '../src/s
 import { createCheckout } from '../src/checkout.ts';
 import { apiFetch } from '../src/api.ts';
 import { loadOwnedOrder, orderOutcome } from '../src/orders.ts';
-import { CategoryForm, OrderSummary, EmailPreview } from '../src/MarketplacePages.tsx';
+import { CategoryForm, OrderSummary, EmailPreview, EmailHtmlPreview } from '../src/MarketplacePages.tsx';
 
 const a = { categoryId: 'a', name: 'Category A', priceCents: 1600 };
 const b = { categoryId: 'b', name: 'Category B', priceCents: 2400 };
@@ -62,7 +62,7 @@ test('F01/F02: real header/cart/admin components read shared store snapshots', (
   try {
     authStore.set(auth('GUEST')); cartStore.set([a, b, a]);
     const cart = render('/cart');
-    assert.match(cart, /Carrinho \(2\)/);
+    assert.match(cart, /aria-label="Abrir carrinho, 2 itens"/);
     assert.match(cart, /Category A/);
     assert.match(cart, /Category B/);
     assert.match(render('/admin'), /Acesso restrito/);
@@ -201,4 +201,24 @@ test('F03/V02: contact email viewer renders untrusted content as escaped text', 
   const html = renderToStaticMarkup(React.createElement(EmailPreview, { delivery: { recipient: 'buyer@example.test', subject: 'Contacts', body: '<script>alert(1)</script>' } }));
   assert.match(html, /&lt;script&gt;/);
   assert.doesNotMatch(html, /<script>/);
+});
+
+test('Email viewer: HTML preview is opt-in and keeps the plain-text alternative visible by default', () => {
+  const html = renderToStaticMarkup(React.createElement(EmailPreview, { delivery: { recipient: 'buyer@example.test', subject: 'Contacts', body: 'Readable text <unsafe>', html: '<h1>Designed email</h1>' } }));
+  assert.match(html, /Ver versão HTML/);
+  assert.match(html, /aria-pressed="false"/);
+  assert.match(html, /Readable text &lt;unsafe&gt;/);
+  assert.doesNotMatch(html, /<iframe|Designed email/);
+});
+
+test('Email viewer: HTML document is isolated in an opaque sandbox with remote resources and scripts blocked', () => {
+  const html = renderToStaticMarkup(React.createElement(EmailHtmlPreview, { html: '<!doctype html><html><head><title>Email</title></head><body><h1>Preview</h1></body></html>' }));
+  assert.match(html, /<iframe/);
+  assert.match(html, /sandbox=""/);
+  assert.match(html, /referrerPolicy="no-referrer"/);
+  assert.match(html, /Content-Security-Policy/);
+  assert.match(html, /default-src &#x27;none&#x27;/);
+  assert.match(html, /style-src &#x27;unsafe-inline&#x27;/);
+  assert.match(html, /srcDoc="&lt;!doctype html&gt;/);
+  assert.doesNotMatch(html, /allow-scripts|allow-same-origin|<h1>Preview/);
 });

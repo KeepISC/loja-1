@@ -7,7 +7,7 @@ import type { AuthState } from './stores';
 type Category = { id: string; name: string; slug: string; description: string; priceCents: number; active: boolean };
 type ContactDraft = { supplierName: string; email: string; telephone: string; whatsapp: string; website: string; notes: string };
 type Contact = ContactDraft & { id: string };
-type Delivery = { recipient: string; subject: string; body: string };
+type Delivery = { recipient: string; subject: string; body: string; html?: string };
 type OutboxItem = Delivery & { id: string; orderId: string; status: string; attempts: number; lastError?: string | null };
 const panel = 'rounded-2xl border border-line bg-surface p-5 shadow-sm';
 const button = 'rounded-lg bg-action px-3 py-2 text-sm text-action-ink disabled:opacity-50';
@@ -165,8 +165,19 @@ export function OrderSummary({ order }: { order: Order }) {
   </section>;
 }
 
+export function EmailHtmlPreview({ html }: { html: string }) {
+  // Keep email markup in an opaque, script-free document; block remote resources too.
+  const policy = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; form-action \'none\'; base-uri \'none\'">';
+  const document = /<head>/i.test(html) ? html.replace(/<head>/i, '<head>' + policy) : policy + html;
+  return <iframe title="Pré-visualização HTML do email" sandbox="" referrerPolicy="no-referrer" srcDoc={document} className="h-[640px] w-full rounded-lg border border-line bg-white" />;
+}
+
 export function EmailPreview({ delivery }: { delivery: Delivery }) {
-  return <section className={panel + ' min-w-0 space-y-2 break-words'}><h2 className="font-semibold">{delivery.subject}</h2><p>Destinatário: {delivery.recipient}</p><pre className="whitespace-pre-wrap break-words font-sans text-sm">{delivery.body}</pre></section>;
+  const [showHtml, setShowHtml] = useState(false);
+  return <section className={panel + ' min-w-0 space-y-2 break-words'}><h2 className="font-semibold">{delivery.subject}</h2><p>Destinatário: {delivery.recipient}</p>
+    {delivery.html && <button type="button" className={secondary} aria-pressed={showHtml} onClick={() => setShowHtml((previous) => !previous)}>{showHtml ? 'Ver texto simples' : 'Ver versão HTML'}</button>}
+    {showHtml && delivery.html ? <EmailHtmlPreview html={delivery.html} /> : <pre className="whitespace-pre-wrap break-words font-sans text-sm">{delivery.body}</pre>}
+  </section>;
 }
 
 export function OrderDetailsPage({ auth }: { auth: AuthState | null }) {

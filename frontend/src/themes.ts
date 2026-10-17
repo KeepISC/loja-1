@@ -40,7 +40,7 @@ export function createThemeStore(api: Api) {
         if (!isThemeId(result.theme)) throw new Error('Tema do site inválido.');
         set({ applied: result.theme, preview: null, saving: false });
       } catch {
-        set({ saving: false, error: 'Não foi possível aplicar o tema. A seleção guardada não foi alterada.' });
+        set({ saving: false, error: 'Não foi possível confirmar a alteração. Recarregue para verificar o tema guardado.' });
       }
     },
   };

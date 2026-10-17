@@ -10,6 +10,8 @@ import { z } from 'zod';
 import { publicDir, uploadDir, requireDevelopment } from './config.js';
 import { ensureGuest, resolveGuest, revokeGuest } from './guest-access.js';
 import { createAppearanceRepository, themeIds } from './appearance.js';
+import { renderSupplierDeliveryEmail } from './email-templates.js';
+import { decodeEmailContent, encodeEmailContent } from './email-content.js';
 
 declare module 'express-session' {
   interface SessionData {
@@ -236,30 +238,13 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
             where: { id: { in: order.items.map((item) => item.categoryId) } },
             include: { contacts: true },
           });
-          const body = [
-            `Pedido: ${order.orderNumber}`,
-            `Destinat?rio: ${order.customerEmail}`,
-            '', 'Categorias compradas:',
-            ...categories.map((category) => `- ${category.name}`),
-            '', 'Contactos dos fornecedores:',
-            ...categories.flatMap((category) => [
-              `Categoria: ${category.name}`,
-              ...category.contacts.flatMap((contact) => [
-                `- ${contact.supplierName}`,
-                `  Email: ${contact.email}`,
-                `  Telefone: ${contact.telephone || 'N/A'}`,
-                `  WhatsApp: ${contact.whatsapp || 'N/A'}`,
-                `  Website: ${contact.website || 'N/A'}`,
-                `  Notas: ${contact.notes || 'N/A'}`,
-              ]),
-            ]),
-          ].join('\n');
+          const message = renderSupplierDeliveryEmail(order, categories, { appUrl: process.env.EMAIL_APP_URL });
           return tx.emailDelivery.update({
             where: { orderId },
             data: {
               status: 'SENT', recipient: order.customerEmail,
-              subject: `Entrega de contactos do pedido ${order.orderNumber}`,
-              body, attempts: { increment: 1 }, lastError: null,
+              subject: message.subject,
+              body: encodeEmailContent(message), attempts: { increment: 1 }, lastError: null,
             },
           });
         }, { maxWait: 10000, timeout: 10000 });
@@ -452,7 +437,7 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
       throw new HttpError(409, 'Delivery is only available after confirmed payment and successful delivery.');
     }
     const { recipient, subject, body } = order.emailDelivery;
-    return res.json({ delivery: { recipient, subject, body } });
+    return res.json({ delivery: { recipient, subject, ...decodeEmailContent(body) } });
   }));
 
   app.get('/api/orders/:id', asyncRoute(async (req, res) => {
@@ -670,7 +655,7 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
     return res.json({ items: outbox.map((delivery) => ({
       id: delivery.id, orderId: delivery.orderId, status: delivery.status, recipient: delivery.recipient,
       subject: delivery.subject, createdAt: delivery.createdAt, attempts: delivery.attempts, lastError: delivery.lastError,
-      body: delivery.status === 'SENT' && delivery.order.status === 'PAID' && delivery.order.payment?.status === 'PAID' ? delivery.body : '',
+      ...(delivery.status === 'SENT' && delivery.order.status === 'PAID' && delivery.order.payment?.status === 'PAID' ? decodeEmailContent(delivery.body) : { body: '' }),
       order: { orderNumber: delivery.order.orderNumber },
     })) });
   }));

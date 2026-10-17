@@ -12,6 +12,8 @@
     "db:push": "cross-env DATABASE_URL=file:../database/dev.db prisma db push --schema ../prisma/schema.prisma",
     "seed": "cross-env DATABASE_URL=file:../database/dev.db tsx src/seed.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "prepreview:emails": "npm run build",
+    "preview:emails": "node scripts/preview-emails.mjs",
     "pretest": "npm run build",
     "test": "node --import ./test/source-loader.mjs --test --test-isolation=none test/*.test.mjs"
   },

@@ -2,6 +2,8 @@
 @import './themes/dark-premium.css';
 @import './themes/vibrant-commerce.css';
 @import './themes/base.css';
+@import './cart-animation.css';
+@import './navigation.css';
 
 @tailwind base;
 @tailwind components;

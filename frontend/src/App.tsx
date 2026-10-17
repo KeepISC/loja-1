@@ -1,13 +1,16 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { authStore, cartStore, type AuthState, type Role } from './stores';
 import { createCheckout } from './checkout';
 import { apiFetch } from './api';
 import { isDemo } from './deployment';
 import { demoNotice } from './demo';
 import { AppearancePanel, ThemeController } from './Appearance';
+import { AddToCartButton, CartFeedbackNotice, useCartFeedback } from './CartFeedback';
+import { cartCountForDisplay } from './cart-feedback';
+import { observeStickyHeader } from './navigation';
 import type { Order } from './orders';
 import { CategoryManagement, EmailOutboxPage, OrdersPage, OrderDetailsPage } from './MarketplacePages';
-import { Link, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 
 type Category = {
   id: string;
@@ -74,33 +77,39 @@ const checkout = createCheckout(apiFetch, checkoutStorage);
 function Header({ demo }: { demo: boolean }) {
   const { auth } = useAuth();
   const { cart } = useCart();
+  const feedback = useCartFeedback();
+  const displayedCount = cartCountForDisplay(cart, feedback.pendingIds);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const header = useRef<HTMLElement>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const { pathname } = useLocation();
+  const floatingCart = pathname === '/' || pathname.startsWith('/categories/');
+  useEffect(() => { if (header.current) return observeStickyHeader(header.current); }, []);
+  useEffect(() => { setMenuOpen(false); }, [pathname]);
 
   return (
-    <header className="market-header border-b border-line bg-surface/80 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
-        <div className="flex items-center gap-3">
-          <Link to="/" className="market-brand text-lg font-bold text-ink">Supplier Market</Link>
-          <nav className="flex flex-wrap gap-3 text-sm text-ink-secondary">
-            <Link to="/">Catálogo</Link>
-            <Link to="/cart">Carrinho</Link>
-            {!demo && <Link to="/orders">Meus pedidos</Link>}
-            {!demo && <Link to="/admin">Admin</Link>}
-          </nav>
-        </div>
+    <header ref={header} data-floating-cart={floatingCart} className="market-header border-b border-line bg-surface" onKeyDown={(event) => {
+      if (event.key === 'Escape' && menuOpen) { setMenuOpen(false); menuButton.current?.focus(); }
+    }}>
+      <div className="market-header-inner">
+        <Link to="/" onClick={() => setMenuOpen(false)} className="market-brand text-lg font-bold text-ink">Supplier Market</Link>
+        <button ref={menuButton} type="button" className="market-menu-toggle" aria-label="Menu de navegação" aria-expanded={menuOpen} aria-controls="market-navigation" onClick={() => setMenuOpen((open) => !open)}>Menu</button>
+        <nav id="market-navigation" aria-label="Navegação principal" data-open={menuOpen} onClick={() => setMenuOpen(false)} className="market-navigation text-sm text-ink-secondary">
+          <Link to="/">Catálogo</Link>
+          <Link to="/cart">Carrinho</Link>
+          {!demo && <Link to="/orders">Meus pedidos</Link>}
+          {!demo && <Link to="/admin">Admin</Link>}
+        </nav>
 
-        <div className="flex items-center gap-3">
-          {auth ? (
-            <>
-              <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-ink-secondary">
-                {auth.displayName} · {auth.role}
-              </span>
-              <Link to="/cart" className="rounded-lg bg-action px-3 py-2 text-sm font-medium text-action-ink">
-                Carrinho ({cart.length})
-              </Link>
-            </>
-          ) : (
-            <span className="text-sm text-ink-muted">Carregando...</span>
-          )}
+        <div className="market-header-actions">
+          {auth && <span className="market-header-identity rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-ink-secondary">
+            {auth.displayName} · {auth.role}
+          </span>}
+          <Link to="/cart" onClick={() => setMenuOpen(false)} aria-label={`Abrir carrinho, ${displayedCount} ${displayedCount === 1 ? 'item' : 'itens'}`} className="market-cart-link bg-action text-action-ink">
+            <span className="cart-icon" data-cart-icon aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" focusable="false"><path d="M2 3h3l2 12h12l2-8H6" /><circle cx="9" cy="20" r="1" /><circle cx="18" cy="20" r="1" /></svg></span>
+            <span className="market-cart-label" aria-hidden="true">Carrinho</span>
+            <span className="market-cart-count" aria-hidden="true">{displayedCount}</span>
+          </Link>
         </div>
       </div>
     </header>
@@ -147,8 +156,8 @@ function HomePage({ demo }: { demo: boolean }) {
       ) : (
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {items.map((category) => (
-            <article key={category.id} className="market-card overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
-              <img src={category.imageUrl} alt={category.name} className="h-40 w-full object-cover" />
+            <article key={category.id} data-cart-product className="market-card overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
+              <img data-cart-image src={category.imageUrl} alt={category.name} className="h-40 w-full object-cover" />
               <div className="p-5">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <h2 className="text-xl font-semibold text-ink">{category.name}</h2>
@@ -169,20 +178,6 @@ function HomePage({ demo }: { demo: boolean }) {
         </div>
       )}
     </div>
-  );
-}
-
-function AddToCartButton({ category }: { category: Category }) {
-  const { cart, setCart } = useCart();
-
-  const add = () => {
-    setCart((current) => [...current, { categoryId: category.id, name: category.name, priceCents: category.priceCents }]);
-  };
-
-  return (
-    <button onClick={add} className="rounded-lg bg-action px-3 py-2 text-sm font-medium text-action-ink">
-      Adicionar
-    </button>
   );
 }
 
@@ -221,8 +216,8 @@ function CategoryPage() {
   return (
     <PageShell>
       <div className="grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
-        <div className="overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
-          <img src={category.imageUrl} alt={category.name} className="h-64 w-full object-cover" />
+        <div data-cart-product className="overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
+          <img data-cart-image src={category.imageUrl} alt={category.name} className="h-64 w-full object-cover" />
           <div className="p-6">
             <div className="mb-3 flex items-center justify-between gap-3">
               <h1 className="text-3xl font-bold text-ink">{category.name}</h1>
@@ -530,6 +525,7 @@ function App({ demo = isDemo }: { demo?: boolean } = {}) {
 
   return (
     <div className="marketplace-shell">
+      <CartFeedbackNotice />
       <ThemeController auth={auth} demo={demo} />
       {demo && <div role="status" className="bg-amber-100 px-4 py-3 text-center font-medium text-amber-900">{demoNotice}</div>}
       <Header demo={demo} />

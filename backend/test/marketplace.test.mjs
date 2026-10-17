@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
+import { encodeEmailContent, decodeEmailContent } from '../src/email-content.ts';
 
 const temp = await mkdtemp(path.join(tmpdir(), 'marketplace-phase1-'));
 const database = path.join(temp, 'test.db');
@@ -568,4 +569,124 @@ test('A proven live private legacy guest session upgrades without changing the o
   const credential = upgraded.headers['set-cookie'].find((cookie) => cookie.startsWith('market_guest=')).split(';')[0];
   assert.equal((await request(server).get('/api/orders/' + order.id).set('Cookie', credential)).status, 200);
   assert.equal((await readOrder(order.id)).userId, stored.userId);
+});
+
+test('Appearance: only ADMIN can apply allowlisted themes; all visitors and fresh apps share SQLite selection', async () => {
+  const visitor = request.agent(server);
+  const beforeOrders = await prisma.order.count();
+  const beforeContacts = await prisma.supplierContact.count();
+  const initial = await visitor.get('/api/appearance');
+  assert.deepEqual(initial.body, { theme: 'modern-minimal' });
+  assert.equal(initial.headers['cache-control'], 'no-store');
+  for (const unauthorized of [request(server), visitor]) {
+    assert.equal((await unauthorized.put('/api/admin/appearance').send({ theme: 'dark-premium', role: 'ADMIN' })).status, 403);
+  }
+  for (const body of [{}, { theme: 'unknown' }, { theme: "dark-premium'; DROP TABLE User;--" }, { theme: 'dark-premium', css: 'url(private)' }]) {
+    assert.equal((await admin.put('/api/admin/appearance').send(body)).status, 400);
+  }
+  for (const theme of ['dark-premium', 'vibrant-commerce', 'modern-minimal']) {
+    const applied = await admin.put('/api/admin/appearance').send({ theme });
+    assert.equal(applied.status, 200);
+    assert.deepEqual((await visitor.get('/api/appearance')).body, { theme });
+  }
+  await admin.put('/api/admin/appearance').send({ theme: 'dark-premium' });
+  const compiled = await import('../dist/app.js');
+  const fresh = compiled.createApp({ uploadDirectory: uploads }).listen(0, '127.0.0.1');
+  servers.push(fresh); await once(fresh, 'listening');
+  try {
+    assert.deepEqual((await request(fresh).get('/api/appearance')).body, { theme: 'dark-premium' });
+    assert.equal((await request(fresh).put('/api/admin/appearance').send({ theme: 'modern-minimal' })).status, 403);
+  } finally { await compiled.prisma.$disconnect(); }
+  assert.equal(await prisma.order.count(), beforeOrders);
+  assert.equal(await prisma.supplierContact.count(), beforeContacts);
+});
+
+test('Appearance: additive SQLite initialization preserves existing data without Prisma generation', async () => {
+  const { PrismaClient } = await import('@prisma/client');
+  const { createAppearanceRepository } = await import('../src/appearance.ts');
+  const legacy = path.join(temp, 'legacy-appearance.db');
+  const db = new DatabaseSync(legacy);
+  db.exec("CREATE TABLE Marker (value TEXT); INSERT INTO Marker VALUES ('fictional preserved record')");
+  db.close();
+  const first = new PrismaClient({ datasources: { db: { url: 'file:' + legacy.replaceAll('\\', '/') } } });
+  try {
+    const repository = createAppearanceRepository(first);
+    assert.equal(await repository.read(), 'modern-minimal');
+    await repository.write('vibrant-commerce');
+  } finally { await first.$disconnect(); }
+  const second = new PrismaClient({ datasources: { db: { url: 'file:' + legacy.replaceAll('\\', '/') } } });
+  try {
+    assert.equal(await createAppearanceRepository(second).read(), 'vibrant-commerce');
+    assert.deepEqual(await second.$queryRaw`SELECT value FROM Marker`, [{ value: 'fictional preserved record' }]);
+  } finally { await second.$disconnect(); }
+});
+
+test('Email HTML: paid owner gets both alternatives, other sessions get neither, repeated confirmations preserve one delivery', async () => {
+  const buyer = request.agent(server), stranger = request.agent(server);
+  const order = await newOrder(buyer);
+  assert.equal((await buyer.get(`/api/orders/${order.id}/delivery`)).status, 409);
+  const pending = await readOrder(order.id);
+  assert.equal(pending.emailDelivery.body, '');
+  assert.equal(pending.emailDelivery.attempts, 0);
+  const paid = await post(buyer, `/api/dev/payments/${order.id}/simulate`);
+  assert.equal(paid.status, 200);
+  assert.equal(bodyContainsContact(paid.body), false);
+  assert.equal(paid.body.order.emailDelivery.html, undefined);
+  const email = await buyer.get(`/api/orders/${order.id}/delivery`);
+  assert.equal(email.status, 200);
+  assert.match(email.body.delivery.html, /<!doctype html>/);
+  assert.match(email.body.delivery.body, /Compra confirmada/);
+  for (const body of [email.body.delivery.html, email.body.delivery.body]) {
+    assert.match(body, /private-supplier-a@example\.test/);
+    assert.doesNotMatch(body, /private-supplier-b@example\.test/);
+  }
+  const stored = await readOrder(order.id);
+  assert.deepEqual(decodeEmailContent(stored.emailDelivery.body), { body: email.body.delivery.body, html: email.body.delivery.html });
+  const outbox = (await admin.get('/api/dev/email-outbox')).body.items.find((item) => item.orderId === order.id);
+  assert.equal(outbox.html, email.body.delivery.html);
+  assert.equal((await stranger.get(`/api/orders/${order.id}/delivery`)).status, 404);
+  assert.equal((await buyer.get('/api/dev/email-outbox')).status, 403);
+  for (const url of ['/api/categories', `/api/categories/${a.slug}`, '/api/orders', `/api/orders/${order.id}`]) {
+    assert.equal(bodyContainsContact((await buyer.get(url)).body), false, url);
+  }
+  assert.equal((await post(buyer, `/api/dev/payments/${order.id}/simulate`)).status, 200);
+  assert.equal((await post(admin, `/api/admin/orders/${order.id}/confirm-payment`)).status, 200);
+  assert.equal((await post(admin, `/api/dev/email-outbox/retry/${order.id}`)).status, 200);
+  const repeated = await readOrder(order.id);
+  assert.equal(repeated.emailDelivery.body, stored.emailDelivery.body);
+  assert.equal(repeated.emailDelivery.attempts, 1);
+  assert.equal(await prisma.emailDelivery.count({ where: { orderId: order.id } }), 1);
+});
+
+test('Email HTML: pending, failed and mismatched payments cannot expose or retry stored contact bodies', async () => {
+  const buyer = request.agent(server), order = await newOrder(buyer);
+  const body = encodeEmailContent({ subject: 'Legacy fixture', text: 'private-supplier-a@example.test', html: '<p>private-supplier-a@example.test</p>' });
+  await prisma.emailDelivery.update({ where: { orderId: order.id }, data: { status: 'SENT', body } });
+  for (const [status, paymentStatus] of [['PENDING', 'PENDING'], ['FAILED', 'FAILED'], ['PAID', 'PENDING'], ['PENDING', 'PAID']]) {
+    await prisma.order.update({ where: { id: order.id }, data: { status, payment: { update: { status: paymentStatus } } } });
+    const preview = await buyer.get(`/api/orders/${order.id}/delivery`);
+    assert.equal(preview.status, 409);
+    assert.equal(bodyContainsContact(preview.body), false);
+    const item = (await admin.get('/api/dev/email-outbox')).body.items.find((entry) => entry.orderId === order.id);
+    assert.equal(item.body, '');
+    assert.equal(item.html, undefined);
+    assert.equal((await post(admin, `/api/dev/email-outbox/retry/${order.id}`)).status, 409);
+    const stored = await readOrder(order.id);
+    assert.equal(stored.emailDelivery.body, body);
+    assert.equal(stored.emailDelivery.attempts, 0);
+  }
+});
+
+test('Email HTML: historical paid text-only deliveries remain readable without generating a second email', async () => {
+  const buyer = request.agent(server), order = await newOrder(buyer);
+  await post(buyer, `/api/dev/payments/${order.id}/simulate`);
+  const legacy = 'Historical <text> private-supplier-a@example.test';
+  await prisma.emailDelivery.update({ where: { orderId: order.id }, data: { body: legacy } });
+  const preview = await buyer.get(`/api/orders/${order.id}/delivery`);
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.delivery.body, legacy);
+  assert.equal(preview.body.delivery.html, undefined);
+  assert.equal((await post(admin, `/api/dev/email-outbox/retry/${order.id}`)).status, 200);
+  assert.equal((await readOrder(order.id)).emailDelivery.body, legacy);
+  assert.equal((await readOrder(order.id)).emailDelivery.attempts, 1);
 });

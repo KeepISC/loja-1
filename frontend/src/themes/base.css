@@ -52,5 +52,5 @@ button:disabled { cursor: not-allowed; }
 .theme-preview-image { height: 2.5rem; background: linear-gradient(130deg, rgb(var(--muted)), rgb(var(--line))); }
 .theme-preview-products > div:nth-child(2) .theme-preview-image { background: linear-gradient(130deg, rgb(var(--muted)), rgb(var(--accent) / .4)); }
 @media (max-width: 1000px) { .theme-grid { grid-template-columns: 1fr; } .theme-choice { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
-@media (max-width: 640px) { .theme-choice { display: block; } .theme-preview { min-height: auto; } .market-header > div { flex-wrap: wrap; } .theme-preview-notice .theme-button { flex: 1; } }
+@media (max-width: 640px) { .theme-choice { display: block; } .theme-preview { min-height: auto; } .theme-preview-notice .theme-button { flex: 1; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } .market-card:hover { transform: none; } }
