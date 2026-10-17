@@ -1,10 +1,11 @@
 export const themes = [
-  { id: 'modern-minimal', name: 'Modern Minimal', label: '01 / ESSENTIAL', description: 'Espaço para o essencial. Superfícies claras, azul discreto e uma apresentação limpa e premium.' },
-  { id: 'dark-premium', name: 'Dark Premium', label: '02 / EXCLUSIVE', description: 'Carvão profundo, apontamentos dourados e títulos elegantes para um mercado mais exclusivo.' },
-  { id: 'vibrant-commerce', name: 'Vibrant Commerce', label: '03 / DISCOVER', description: 'Violeta, azul e coral. Cartões expressivos e chamadas à ação com uma energia diferente.' },
+  { id: 'classic', name: 'Classic', label: '01 / ORIGINAL', description: 'A loja original, com a navegação, o catálogo e o carrinho de sempre.' },
+  { id: 'minimal', name: 'Minimal', label: '02 / CURATED', description: 'Uma seleção editorial. Imagens amplas, espaço para descobrir e carrinho lateral.' },
+  { id: 'marketplace', name: 'Marketplace', label: '03 / EXPLORE', description: 'Pesquisa em destaque, filtros por categoria e um catálogo prático e compacto.' },
+  { id: 'dark', name: 'Dark', label: '04 / AFTER HOURS', description: 'Contraste profundo, categorias visuais e uma seleção com presença.' },
 ] as const;
 export type ThemeId = typeof themes[number]['id'];
-export const defaultTheme: ThemeId = 'modern-minimal';
+export const defaultTheme: ThemeId = 'classic';
 export const isThemeId = (value: unknown): value is ThemeId => themes.some((theme) => theme.id === value);
 
 type Api = <T>(url: string, init?: RequestInit) => Promise<T>;

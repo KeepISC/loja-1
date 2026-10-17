@@ -8,6 +8,8 @@ import App from '../src/App.tsx';
 import { demoApiFetch, demoNotice } from '../src/demo.ts';
 import { authStore, cartStore } from '../src/stores.ts';
 import config from '../vite.config.ts';
+import { themeStore } from '../src/Appearance.tsx';
+import { themes } from '../src/themes.ts';
 
 test('Pages catalog is fictional, contact-free, and uses the repository asset prefix', async () => {
   const { items } = await demoApiFetch('/api/categories', {}, '/loja-1/');
@@ -24,7 +26,7 @@ test('Pages catalog is fictional, contact-free, and uses the repository asset pr
   assert.equal(identity.role, 'GUEST');
   assert.equal(identity.mode, 'demo');
   assert.equal(identity.mockAccountSwitchingEnabled, false);
-  assert.deepEqual(await demoApiFetch('/api/appearance'), { theme: 'modern-minimal' });
+  assert.deepEqual(await demoApiFetch('/api/appearance'), { theme: 'classic' });
   items[0].name = 'Changed locally';
   assert.notEqual((await demoApiFetch('/api/categories')).items[0].name, 'Changed locally');
 });
@@ -47,20 +49,31 @@ test('Pages API rejects writes and private paths without ever using the network'
   } finally { globalThis.fetch = original; }
 });
 
-test('Pages UI blocks checkout, admin, orders and delivery even with stale ADMIN state', () => {
+test('Pages UI blocks checkout, admin, orders and delivery in all themes even with stale ADMIN state', async () => {
   const render = (route) => renderToStaticMarkup(React.createElement(StaticRouter, { location: route }, React.createElement(App, { demo: true })));
+  const originalFetch = globalThis.fetch;
+  const loadTheme = async (theme) => {
+    globalThis.fetch = async () => new Response(JSON.stringify({ theme }), { headers: { 'Content-Type': 'application/json' } });
+    await themeStore.refresh();
+  };
   try {
     authStore.set({ role: 'ADMIN', displayName: 'Stale identity', email: 'fixture@example.test', mode: 'development', mockAccountSwitchingEnabled: true });
     cartStore.set([{ categoryId: 'demo-tech', name: 'Tecnologia (demo)', priceCents: 1200 }]);
-    for (const route of ['/checkout', '/admin', '/orders', '/orders/guess', '/success?orderId=guess', '/dev/email-outbox']) {
+    for (const { id } of themes) {
+      await loadTheme(id);
+      for (const route of ['/checkout', '/admin', '/orders', '/orders/guess', '/success?orderId=guess', '/dev/email-outbox']) {
       const html = render(route);
       assert.match(html, /Modo demo/);
       assert.match(html, /Disponível apenas na aplicação local/);
-      assert.doesNotMatch(html, /<input|<form|Simular pagamento|Guardar contacto|Ver email de entrega/);
+      const main = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/)?.[1];
+      assert.ok(main);
+      assert.doesNotMatch(main, /<input|<form|Simular pagamento|Guardar contacto|Ver email de entrega/);
+      assert.doesNotMatch(html, /Simular pagamento|Guardar contacto|Ver email de entrega/);
       assert.doesNotMatch(html, />ADMIN<|href="\/admin"|href="\/orders"/);
+      }
+      assert.match(render('/cart'), /disabled=""[^>]*>Checkout indisponível no demo/);
     }
-    assert.match(render('/cart'), /disabled=""[^>]*>Checkout indisponível no demo/);
-  } finally { authStore.set(null); cartStore.set([]); }
+  } finally { await loadTheme('classic'); globalThis.fetch = originalFetch; authStore.set(null); cartStore.set([]); }
 });
 
 test('Pages configuration isolates public assets and environment variables from local development', async () => {

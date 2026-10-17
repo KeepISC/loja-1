@@ -4,7 +4,9 @@ import { createCheckout } from './checkout';
 import { apiFetch } from './api';
 import { isDemo } from './deployment';
 import { demoNotice } from './demo';
-import { AppearancePanel, ThemeController } from './Appearance';
+import { AppearancePanel, ThemeController, useActiveTheme } from './Appearance';
+import type { ThemeId } from './themes';
+import { StoreHeader, StoreHome, StoreCartPage, StoreProductPage } from './Storefront';
 import { AddToCartButton, CartFeedbackNotice, useCartFeedback } from './CartFeedback';
 import { cartCountForDisplay } from './cart-feedback';
 import { observeStickyHeader } from './navigation';
@@ -116,7 +118,7 @@ function Header({ demo }: { demo: boolean }) {
   );
 }
 
-function HomePage({ demo }: { demo: boolean }) {
+function HomePage({ demo, theme }: { demo: boolean; theme: ThemeId }) {
   const [items, setItems] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -139,6 +141,7 @@ function HomePage({ demo }: { demo: boolean }) {
     };
   }, []);
 
+  if (theme !== 'classic') return <StoreHome theme={theme} demo={demo} items={items} loading={loading} error={error} />;
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
       <div className="market-hero mb-10">
@@ -181,7 +184,7 @@ function HomePage({ demo }: { demo: boolean }) {
   );
 }
 
-function CategoryPage() {
+function CategoryPage({ theme, demo }: { theme: ThemeId; demo: boolean }) {
   const { slug } = useParams();
   const [data, setData] = useState<CategoryDetails | null>(null);
   const [loading, setLoading] = useState(true);
@@ -212,6 +215,8 @@ function CategoryPage() {
   if (!data) return <PageShell><p>Categoria não encontrada.</p></PageShell>;
 
   const category = data.item;
+
+  if (theme !== 'classic') return <StoreProductPage theme={theme} demo={demo} item={category} count={data.supplierContactsCount} />;
 
   return (
     <PageShell>
@@ -248,7 +253,7 @@ function CategoryPage() {
   );
 }
 
-function CartPage({ demo }: { demo: boolean }) {
+function CartPage({ demo, theme }: { demo: boolean; theme: ThemeId }) {
   const { cart, setCart } = useCart();
   const total = cart.reduce((sum, item) => sum + item.priceCents, 0);
   const navigate = useNavigate();
@@ -256,6 +261,8 @@ function CartPage({ demo }: { demo: boolean }) {
   const remove = (categoryId: string) => {
     setCart((current) => current.filter((item) => item.categoryId !== categoryId));
   };
+
+  if (theme !== 'classic') return <StoreCartPage theme={theme} demo={demo} />;
 
   return (
     <PageShell>
@@ -509,6 +516,7 @@ function DemoUnavailablePage() {
 function App({ demo = isDemo }: { demo?: boolean } = {}) {
   const { auth, setAuth } = useAuth();
   const { cart } = useCart();
+  const theme = useActiveTheme(auth, demo);
 
   const switchRole = async (role: Role) => {
     if (demo) return;
@@ -524,11 +532,11 @@ function App({ demo = isDemo }: { demo?: boolean } = {}) {
   };
 
   return (
-    <div className="marketplace-shell">
+    <div className="marketplace-shell" data-theme={theme}>
       <CartFeedbackNotice />
       <ThemeController auth={auth} demo={demo} />
       {demo && <div role="status" className="bg-amber-100 px-4 py-3 text-center font-medium text-amber-900">{demoNotice}</div>}
-      <Header demo={demo} />
+      {theme === 'classic' ? <Header demo={demo} /> : <StoreHeader theme={theme} demo={demo} />}
       <div className="border-b border-line bg-muted">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-2 text-sm text-ink-secondary">
@@ -549,9 +557,9 @@ function App({ demo = isDemo }: { demo?: boolean } = {}) {
       </div>
 
       <main className="market-main"><Routes>
-        <Route path="/" element={<HomePage demo={demo} />} />
-        <Route path="/categories/:slug" element={<CategoryPage />} />
-        <Route path="/cart" element={<CartPage demo={demo} />} />
+        <Route path="/" element={<HomePage demo={demo} theme={theme} />} />
+        <Route path="/categories/:slug" element={<CategoryPage theme={theme} demo={demo} />} />
+        <Route path="/cart" element={<CartPage demo={demo} theme={theme} />} />
         <Route path="/checkout" element={demo ? <DemoUnavailablePage /> : <CheckoutPage />} />
         <Route path="/success" element={demo ? <DemoUnavailablePage /> : <OrderDetailsPage auth={auth} />} />
         <Route path="/orders" element={demo ? <DemoUnavailablePage /> : <OrdersPage auth={auth} />} />

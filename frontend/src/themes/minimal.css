@@ -1,0 +1,41 @@
+﻿[data-theme="minimal"] {
+  color-scheme: light;
+  --canvas: 249 248 244;
+  --surface: 255 255 255;
+  --muted: 239 237 231;
+  --ink: 36 39 34;
+  --ink-secondary: 70 74 65;
+  --ink-muted: 89 94 82;
+  --line: 220 220 211;
+  --line-strong: 122 126 113;
+  --accent: 48 66 49;
+  --accent-hover: 31 46 33;
+  --action: 48 66 49;
+  --action-ink: 255 255 255;
+  --disabled: 218 220 211;
+  --focus: 48 66 49;
+  --hero-ink: 255 255 255;
+  --hero-muted: 228 237 222;
+  --hero-gradient: linear-gradient(120deg, #253b29, #304231);
+  --hero-decoration: rgba(255, 255, 255, .08);
+  --card-topline: transparent;
+  --success-bg: 220 252 231;
+  --success-ink: 22 101 52;
+  --danger-bg: 254 242 242;
+  --danger-line: 252 165 165;
+  --danger-ink: 153 27 27;
+  --warning-bg: 255 247 222;
+  --warning-line: 214 158 46;
+  --warning-ink: 120 66 9;
+  --font-body: "Inter", "Segoe UI", system-ui, sans-serif;
+  --font-heading: Georgia, "Times New Roman", serif;
+  --heading-weight: 400;
+  --heading-tracking: -.035em;
+  --radius-panel: 0rem;
+  --radius-control: .15rem;
+  --shadow-panel: 0 8px 30px rgba(36, 39, 34, .035);
+  --shadow-hover: 0 18px 42px rgba(36, 39, 34, .08);
+  --card-lift: -2px;
+  --hero-space: clamp(2rem, 6vw, 4.5rem);
+}
+

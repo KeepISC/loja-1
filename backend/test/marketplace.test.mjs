@@ -576,26 +576,26 @@ test('Appearance: only ADMIN can apply allowlisted themes; all visitors and fres
   const beforeOrders = await prisma.order.count();
   const beforeContacts = await prisma.supplierContact.count();
   const initial = await visitor.get('/api/appearance');
-  assert.deepEqual(initial.body, { theme: 'modern-minimal' });
+  assert.deepEqual(initial.body, { theme: 'classic' });
   assert.equal(initial.headers['cache-control'], 'no-store');
   for (const unauthorized of [request(server), visitor]) {
-    assert.equal((await unauthorized.put('/api/admin/appearance').send({ theme: 'dark-premium', role: 'ADMIN' })).status, 403);
+    assert.equal((await unauthorized.put('/api/admin/appearance').send({ theme: 'dark', role: 'ADMIN' })).status, 403);
   }
-  for (const body of [{}, { theme: 'unknown' }, { theme: "dark-premium'; DROP TABLE User;--" }, { theme: 'dark-premium', css: 'url(private)' }]) {
+  for (const body of [{}, { theme: 'unknown' }, { theme: "dark'; DROP TABLE User;--" }, { theme: 'dark', css: 'url(private)' }]) {
     assert.equal((await admin.put('/api/admin/appearance').send(body)).status, 400);
   }
-  for (const theme of ['dark-premium', 'vibrant-commerce', 'modern-minimal']) {
+  for (const theme of ['classic', 'minimal', 'marketplace', 'dark']) {
     const applied = await admin.put('/api/admin/appearance').send({ theme });
     assert.equal(applied.status, 200);
     assert.deepEqual((await visitor.get('/api/appearance')).body, { theme });
   }
-  await admin.put('/api/admin/appearance').send({ theme: 'dark-premium' });
+  await admin.put('/api/admin/appearance').send({ theme: 'dark' });
   const compiled = await import('../dist/app.js');
   const fresh = compiled.createApp({ uploadDirectory: uploads }).listen(0, '127.0.0.1');
   servers.push(fresh); await once(fresh, 'listening');
   try {
-    assert.deepEqual((await request(fresh).get('/api/appearance')).body, { theme: 'dark-premium' });
-    assert.equal((await request(fresh).put('/api/admin/appearance').send({ theme: 'modern-minimal' })).status, 403);
+    assert.deepEqual((await request(fresh).get('/api/appearance')).body, { theme: 'dark' });
+    assert.equal((await request(fresh).put('/api/admin/appearance').send({ theme: 'classic' })).status, 403);
   } finally { await compiled.prisma.$disconnect(); }
   assert.equal(await prisma.order.count(), beforeOrders);
   assert.equal(await prisma.supplierContact.count(), beforeContacts);
@@ -611,12 +611,17 @@ test('Appearance: additive SQLite initialization preserves existing data without
   const first = new PrismaClient({ datasources: { db: { url: 'file:' + legacy.replaceAll('\\', '/') } } });
   try {
     const repository = createAppearanceRepository(first);
-    assert.equal(await repository.read(), 'modern-minimal');
-    await repository.write('vibrant-commerce');
+    assert.equal(await repository.read(), 'classic');
+    for (const [stored, expected] of [['modern-minimal', 'classic'], ['dark-premium', 'dark'], ['vibrant-commerce', 'marketplace'], ['__proto__', 'classic'], ['unknown', 'classic']]) {
+      await first.$executeRaw`INSERT INTO "SiteSetting" ("key", "value") VALUES ('theme', ${stored}) ON CONFLICT("key") DO UPDATE SET "value" = excluded."value"`;
+      assert.equal(await repository.read(), expected);
+      assert.deepEqual(await first.$queryRaw`SELECT value FROM SiteSetting WHERE key = 'theme'`, [{ value: stored }]);
+    }
+    await repository.write('marketplace');
   } finally { await first.$disconnect(); }
   const second = new PrismaClient({ datasources: { db: { url: 'file:' + legacy.replaceAll('\\', '/') } } });
   try {
-    assert.equal(await createAppearanceRepository(second).read(), 'vibrant-commerce');
+    assert.equal(await createAppearanceRepository(second).read(), 'marketplace');
     assert.deepEqual(await second.$queryRaw`SELECT value FROM Marker`, [{ value: 'fictional preserved record' }]);
   } finally { await second.$disconnect(); }
 });

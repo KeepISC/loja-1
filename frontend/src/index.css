@@ -1,9 +1,11 @@
-@import './themes/modern-minimal.css';
-@import './themes/dark-premium.css';
-@import './themes/vibrant-commerce.css';
+@import './themes/classic.css';
+@import './themes/minimal.css';
+@import './themes/marketplace.css';
+@import './themes/dark.css';
 @import './themes/base.css';
 @import './cart-animation.css';
 @import './navigation.css';
+@import './storefront.css';
 
 @tailwind base;
 @tailwind components;

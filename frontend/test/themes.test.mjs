@@ -16,23 +16,23 @@ const admin = { role: 'ADMIN', displayName: 'Mock Administrator', email: 'admin@
 
 test('Themes: preview is immediate, survives public refresh, and cancels without any write', async () => {
   const calls = [];
-  const store = createThemeStore(async (url, init) => { calls.push([url, init]); return { theme: 'dark-premium' }; });
+  const store = createThemeStore(async (url, init) => { calls.push([url, init]); return { theme: 'dark' }; });
   await store.refresh();
-  store.preview('vibrant-commerce');
-  assert.equal(store.getSnapshot().preview, 'vibrant-commerce');
-  assert.equal(store.getSnapshot().applied, 'dark-premium');
+  store.preview('marketplace');
+  assert.equal(store.getSnapshot().preview, 'marketplace');
+  assert.equal(store.getSnapshot().applied, 'dark');
   await store.refresh();
-  assert.equal(store.getSnapshot().preview, 'vibrant-commerce');
+  assert.equal(store.getSnapshot().preview, 'marketplace');
   store.cancelPreview();
   assert.equal(store.getSnapshot().preview, null);
-  assert.equal(store.getSnapshot().applied, 'dark-premium');
+  assert.equal(store.getSnapshot().applied, 'dark');
   store.preview('unrecognized-theme');
   assert.equal(store.getSnapshot().preview, null);
   assert.ok(calls.every(([url, init]) => url === '/api/appearance' && !init?.method));
 });
 
 test('Themes: apply saves through the admin API and a new visitor reads the shared choice', async () => {
-  let saved = 'modern-minimal';
+  let saved = 'classic';
   const api = async (url, init) => {
     if (init?.method === 'PUT') {
       assert.equal(url, '/api/admin/appearance');
@@ -41,21 +41,21 @@ test('Themes: apply saves through the admin API and a new visitor reads the shar
     return { theme: saved };
   };
   const manager = createThemeStore(api);
-  manager.preview('dark-premium');
-  await manager.apply('dark-premium');
-  assert.equal(manager.getSnapshot().applied, 'dark-premium');
+  manager.preview('dark');
+  await manager.apply('dark');
+  assert.equal(manager.getSnapshot().applied, 'dark');
   assert.equal(manager.getSnapshot().preview, null);
   const visitorAfterReload = createThemeStore(api);
   await visitorAfterReload.refresh();
-  assert.equal(visitorAfterReload.getSnapshot().applied, 'dark-premium');
+  assert.equal(visitorAfterReload.getSnapshot().applied, 'dark');
 });
 
 test('Themes: failed writes keep the last confirmed theme and allow preview cancellation', async () => {
   const store = createThemeStore(async () => { throw new Error('Forbidden or network failure'); });
-  store.preview('dark-premium');
-  await store.apply('dark-premium');
-  assert.equal(store.getSnapshot().applied, 'modern-minimal');
-  assert.equal(store.getSnapshot().preview, 'dark-premium');
+  store.preview('dark');
+  await store.apply('dark');
+  assert.equal(store.getSnapshot().applied, 'classic');
+  assert.equal(store.getSnapshot().preview, 'dark');
   assert.equal(store.getSnapshot().saving, false);
   assert.ok(store.getSnapshot().error);
   store.cancelPreview();
@@ -64,14 +64,14 @@ test('Themes: failed writes keep the last confirmed theme and allow preview canc
 
 test('Themes: an older public read cannot undo a newly applied theme', async () => {
   let resolveRead;
-  const store = createThemeStore(async (_url, init) => init?.method === 'PUT' ? { theme: 'vibrant-commerce' } : new Promise((resolve) => { resolveRead = resolve; }));
+  const store = createThemeStore(async (_url, init) => init?.method === 'PUT' ? { theme: 'marketplace' } : new Promise((resolve) => { resolveRead = resolve; }));
   const staleRead = store.refresh();
-  await store.apply('vibrant-commerce');
-  resolveRead({ theme: 'dark-premium' }); await staleRead;
-  assert.equal(store.getSnapshot().applied, 'vibrant-commerce');
+  await store.apply('marketplace');
+  resolveRead({ theme: 'dark' }); await staleRead;
+  assert.equal(store.getSnapshot().applied, 'marketplace');
 });
 
-test('Themes: ADMIN sees three scoped preview cards and a preview banner across marketplace routes', () => {
+test('Themes: ADMIN sees four scoped preview cards and a preview banner across marketplace routes', () => {
   const render = (auth) => renderToStaticMarkup(React.createElement(AppearancePanel, { auth }));
   assert.equal(render(null), '');
   assert.equal(render({ ...admin, role: 'GUEST' }), '');
@@ -83,11 +83,11 @@ test('Themes: ADMIN sees three scoped preview cards and a preview banner across 
     assert.ok(html.includes('Aplicar ' + theme.name));
   }
   try {
-    authStore.set(admin); themeStore.preview('dark-premium');
+    authStore.set(admin); themeStore.preview('dark');
     for (const route of ['/', '/cart', '/checkout', '/categories/fixture', '/admin']) {
       const page = renderToStaticMarkup(React.createElement(StaticRouter, { location: route }, React.createElement(App)));
       assert.match(page, /Pré-visualização:/);
-      assert.match(page, /Dark Premium/);
+      assert.match(page, /Dark/);
       assert.match(page, /Cancelar pré-visualização/);
     }
     authStore.set({ ...admin, role: 'GUEST' });
@@ -119,7 +119,7 @@ test('Themes: all palettes provide readable normal text, action labels, states, 
 test('Themes: shared styles and semantic Tailwind utilities compile without Vite subprocesses', async () => {
   const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8').replace(/@import '([^']+)';/g, (_match, file) => readFileSync(new URL('../src/' + file, import.meta.url), 'utf8'));
   const compiled = await postcss([tailwindcss(tailwindConfig)]).process(css, { from: undefined });
-  for (const name of ['modern-minimal', 'dark-premium', 'vibrant-commerce', '.theme-preview', '.bg-action', '.bg-surface', '.text-ink', '.border-line']) assert.ok(compiled.css.includes(name), name);
+  for (const name of ['classic', 'dark', 'marketplace', '.theme-preview', '.bg-action', '.bg-surface', '.text-ink', '.border-line']) assert.ok(compiled.css.includes(name), name);
   assert.ok(compiled.css.includes(':focus-visible'));
   assert.ok(compiled.css.includes('prefers-reduced-motion'));
 });

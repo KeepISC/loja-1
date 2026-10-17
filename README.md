@@ -64,21 +64,9 @@ References: [Vite GitHub Pages deployment](https://vite.dev/guide/static-deploy.
 
 ## Appearance / Themes
 
-The local marketplace has three shared designs: **Modern Minimal**, **Dark Premium**, and **Vibrant Commerce**. Color, typography, border, shadow, radius, focus and hover tokens live in separate `frontend/src/themes/*.css` files with shared component styles. No external fonts or new dependencies are required.
+The storefront now offers **Classic** (the original design and default), **Minimal**, **Marketplace**, and **Dark**, with different headers, catalogues, category navigation and cart presentations. They share the existing business logic, state and backend settings.
 
-Select ADMIN, open `/admin`, and use **Aparência / Temas**:
-
-1. **Pré-visualizar** changes the entire marketplace immediately, without saving. Navigate to category, cart and checkout pages to compare the result; the preview notice remains available.
-2. **Cancelar pré-visualização** returns to the latest saved theme. Switching away from ADMIN also ends the preview.
-3. **Aplicar tema** saves the choice for every visitor. New visits/reloads read it from the backend; already-open pages refresh it on window focus and every 30 seconds. Preview state is never saved to browser storage or shared with other visitors.
-
-`GET /api/appearance` returns only the active theme ID. `PUT /api/admin/appearance` requires the existing mock ADMIN session and accepts only the three built-in IDs. Arbitrary CSS and unknown properties are rejected. The active ID persists in SQLite's `SiteSetting` table. Existing databases gain that table additively on the first appearance request; no database reset, destructive migration or Prisma client regeneration is needed. The Prisma schema also declares the table for future setup commands. Other application data is preserved.
-
-The GitHub Pages demo remains read-only and uses Modern Minimal for all visitors. Its in-memory appearance response exposes no backend configuration, and ADMIN theme changes remain unavailable there. A static Pages deployment cannot read or update the local SQLite setting; changing its shared theme would require a new static build. Local administration and persistence require the Express backend.
-
-Theme verification on 2026-10-17: **31 backend + 25 frontend tests pass (56 total)**, including ADMIN-only updates, rejection of invalid IDs, new-client/database persistence, additive initialization, preview/cancellation, stale-response protection, Pages restrictions, token contrast ratios and CSS/Tailwind compilation. Both TypeScript projects and the Vite config type-check pass; backend compilation passes. Existing purchase/privacy/payment/delivery regressions remain green.
-
-The frontend production build was attempted and remains **BLOCKED by esbuild `spawn EPERM`** before compilation. A headless static Chrome preview was also blocked by Windows IPC/crashpad `Access is denied`; no browser screenshots, clicks or visual acceptance checks passed. In a permitted local environment, run `npm run build --workspace frontend` and the Pages build commands above, then manually compare all themes at desktop/mobile widths, keyboard focus, contact forms, order/delivery screens and checkout. Use a second GUEST browser to verify shared application and denied theme updates; restart the backend with cookies retained to verify the saved selection. Tests used temporary SQLite files and did not change the project database.
+See [STOREFRONT_THEMES.md](STOREFRONT_THEMES.md) for local preview URLs, administrator activation, compatibility details, verification results and the desktop/mobile review checklist. The public fictional Pages demo retains its restrictions and cannot change a shared backend setting. No commit, push or deployment is performed.
 
 ## Add-to-cart feedback
 
@@ -98,7 +86,7 @@ There is one cart icon and counter backed by the existing cart/animation stores.
 
 Verification on 2026-10-17: **41 frontend tests pass**, including scroll/resize observer cleanup, shared count additions/removals, shopping versus transaction placement, mobile animation arrival and existing theme/demo/checkout regressions. The frontend TypeScript check and in-process Tailwind/CSS compilation pass. The production frontend build is **BLOCKED by Vite/esbuild `spawn EPERM` while loading configuration**. Desktop/mobile browser, touch and keyboard interactions have **not been executed** in this restricted environment.
 
-Manual checks: in normal PowerShell run `npm run build --workspace frontend` and `npm run dev`. Compare all three themes at desktop width and mobile widths of 390px and 320px. Scroll a long catalog, open/close Menu with keyboard and Escape, add/remove items, follow the cart shortcut, and confirm the flight reaches the visible icon with one updated badge. Check the scrolled shadow, focused controls/anchors below the header, narrow/landscape safe areas, no success-notice overlap, unobstructed checkout controls and reduced-motion emulation. Repeat catalog/cart navigation in the Pages preview; checkout must remain disabled.
+Manual checks: in normal PowerShell run `npm run build --workspace frontend` and `npm run dev`. Compare all four themes at desktop width and mobile widths of 390px and 320px. Scroll a long catalog, open/close Menu with keyboard and Escape, add/remove items, follow the cart shortcut, and confirm the flight reaches the visible icon with one updated badge. Check the scrolled shadow, focused controls/anchors below the header, narrow/landscape safe areas, no success-notice overlap, unobstructed checkout controls and reduced-motion emulation. Repeat catalog/cart navigation in the Pages preview; checkout must remain disabled.
 
 ## Mock accounts
 

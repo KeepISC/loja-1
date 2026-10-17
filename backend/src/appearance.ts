@@ -1,7 +1,10 @@
 import type { PrismaClient } from '@prisma/client';
 
-export const themeIds = ['modern-minimal', 'dark-premium', 'vibrant-commerce'] as const;
+export const themeIds = ['classic', 'minimal', 'marketplace', 'dark'] as const;
 export type ThemeId = typeof themeIds[number];
+
+// Read old settings without rewriting any existing configuration or application data.
+const legacyThemes = new Map<string, ThemeId>([['modern-minimal', 'classic'], ['dark-premium', 'dark'], ['vibrant-commerce', 'marketplace']]);
 
 export function createAppearanceRepository(prisma: PrismaClient) {
   let ready: Promise<unknown> | undefined;
@@ -12,7 +15,7 @@ export function createAppearanceRepository(prisma: PrismaClient) {
     async read(): Promise<ThemeId> {
       await initialize();
       const rows = await prisma.$queryRaw<Array<{ value: string }>>`SELECT "value" FROM "SiteSetting" WHERE "key" = 'theme'`;
-      return themeIds.find((id) => id === rows[0]?.value) ?? 'modern-minimal';
+      return themeIds.find((id) => id === rows[0]?.value) ?? legacyThemes.get(rows[0]?.value) ?? 'classic';
     },
     async write(theme: ThemeId) {
       await initialize();

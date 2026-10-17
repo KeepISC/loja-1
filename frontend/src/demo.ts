@@ -14,7 +14,7 @@ export async function demoApiFetch<T>(input: string, init: RequestInit = {}, bas
   if (input === '/api/auth/me') {
     result = { role: 'GUEST', displayName: 'Visitante (demo)', email: 'demo@example.test', mode: 'demo', mockAccountSwitchingEnabled: false };
   } else if (input === '/api/appearance') {
-    result = { theme: 'modern-minimal' };
+    result = { theme: 'classic' };
   } else if (input === '/api/categories') {
     result = { items };
   } else {
