@@ -2,6 +2,9 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { authStore, cartStore, type AuthState, type Role } from './stores';
 import { createCheckout } from './checkout';
 import { apiFetch } from './api';
+import { isDemo } from './deployment';
+import { demoNotice } from './demo';
+import { AppearancePanel, ThemeController } from './Appearance';
 import type { Order } from './orders';
 import { CategoryManagement, EmailOutboxPage, OrdersPage, OrderDetailsPage } from './MarketplacePages';
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
@@ -65,38 +68,38 @@ function useCart() {
 }
 
 let checkoutStorage: Storage | undefined;
-try { checkoutStorage = window.sessionStorage; } catch { /* In-memory retry remains available. */ }
+try { if (!isDemo) checkoutStorage = window.sessionStorage; } catch { /* In-memory retry remains available. */ }
 const checkout = createCheckout(apiFetch, checkoutStorage);
 
-function Header() {
+function Header({ demo }: { demo: boolean }) {
   const { auth } = useAuth();
   const { cart } = useCart();
 
   return (
-    <header className="border-b border-slate-200 bg-white/80 backdrop-blur">
+    <header className="market-header border-b border-line bg-surface/80 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
         <div className="flex items-center gap-3">
-          <Link to="/" className="text-lg font-bold text-slate-900">Supplier Market</Link>
-          <nav className="flex flex-wrap gap-3 text-sm text-slate-600">
+          <Link to="/" className="market-brand text-lg font-bold text-ink">Supplier Market</Link>
+          <nav className="flex flex-wrap gap-3 text-sm text-ink-secondary">
             <Link to="/">Catálogo</Link>
             <Link to="/cart">Carrinho</Link>
-            <Link to="/orders">Meus pedidos</Link>
-            <Link to="/admin">Admin</Link>
+            {!demo && <Link to="/orders">Meus pedidos</Link>}
+            {!demo && <Link to="/admin">Admin</Link>}
           </nav>
         </div>
 
         <div className="flex items-center gap-3">
           {auth ? (
             <>
-              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+              <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-ink-secondary">
                 {auth.displayName} · {auth.role}
               </span>
-              <Link to="/cart" className="rounded-lg bg-brand-500 px-3 py-2 text-sm font-medium text-white">
+              <Link to="/cart" className="rounded-lg bg-action px-3 py-2 text-sm font-medium text-action-ink">
                 Carrinho ({cart.length})
               </Link>
             </>
           ) : (
-            <span className="text-sm text-slate-500">Carregando...</span>
+            <span className="text-sm text-ink-muted">Carregando...</span>
           )}
         </div>
       </div>
@@ -104,7 +107,7 @@ function Header() {
   );
 }
 
-function HomePage() {
+function HomePage({ demo }: { demo: boolean }) {
   const [items, setItems] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -129,11 +132,11 @@ function HomePage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
-      <div className="mb-8 rounded-2xl bg-gradient-to-r from-brand-500 to-brand-700 p-8 text-white shadow-lg">
+      <div className="market-hero mb-10">
         <p className="text-sm uppercase tracking-[0.2em] opacity-80">Marketplace local</p>
         <h1 className="mt-3 text-3xl font-bold">Contactos de fornecedores privados</h1>
         <p className="mt-3 max-w-xl text-sm text-brand-50">
-          Explore categorias, encontre contactos selecionados e finalize uma compra local simulada.
+          {demo ? 'Explore um catálogo fictício. Esta demonstração não permite compras nem fornece contactos.' : 'Explore categorias, encontre contactos selecionados e finalize uma compra local simulada.'}
         </p>
       </div>
 
@@ -144,16 +147,16 @@ function HomePage() {
       ) : (
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {items.map((category) => (
-            <article key={category.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <article key={category.id} className="market-card overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
               <img src={category.imageUrl} alt={category.name} className="h-40 w-full object-cover" />
               <div className="p-5">
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <h2 className="text-xl font-semibold text-slate-900">{category.name}</h2>
+                  <h2 className="text-xl font-semibold text-ink">{category.name}</h2>
                   <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">
                     {formatMoney(category.priceCents)}
                   </span>
                 </div>
-                <p className="mb-4 line-clamp-3 text-sm text-slate-600">{category.description}</p>
+                <p className="mb-4 line-clamp-3 text-sm text-ink-secondary">{category.description}</p>
                 <div className="flex items-center justify-between gap-3">
                   <Link to={`/categories/${category.slug}`} className="font-medium text-brand-600 hover:text-brand-700">
                     Ver detalhes
@@ -177,7 +180,7 @@ function AddToCartButton({ category }: { category: Category }) {
   };
 
   return (
-    <button onClick={add} className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white">
+    <button onClick={add} className="rounded-lg bg-action px-3 py-2 text-sm font-medium text-action-ink">
       Adicionar
     </button>
   );
@@ -218,28 +221,28 @@ function CategoryPage() {
   return (
     <PageShell>
       <div className="grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
           <img src={category.imageUrl} alt={category.name} className="h-64 w-full object-cover" />
           <div className="p-6">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <h1 className="text-3xl font-bold text-slate-900">{category.name}</h1>
+              <h1 className="text-3xl font-bold text-ink">{category.name}</h1>
               <span className="rounded-full bg-emerald-100 px-3 py-1 text-sm font-medium text-emerald-700">
                 {formatMoney(category.priceCents)}
               </span>
             </div>
-            <p className="text-slate-600">{category.description}</p>
+            <p className="text-ink-secondary">{category.description}</p>
             <div className="mt-6 flex gap-3">
               <AddToCartButton category={category} />
-              <Link to="/" className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700">
+              <Link to="/" className="rounded-lg border border-line-strong px-3 py-2 text-sm font-medium text-ink-secondary">
                 Voltar ao catálogo
               </Link>
             </div>
           </div>
         </div>
 
-        <aside className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-900">Resumo</h2>
-          <ul className="mt-4 space-y-3 text-sm text-slate-600">
+        <aside className="rounded-2xl border border-line bg-surface p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-ink">Resumo</h2>
+          <ul className="mt-4 space-y-3 text-sm text-ink-secondary">
             <li>Preço: {formatMoney(category.priceCents)}</li>
             <li>Fornecedores públicos: {data.supplierContactsCount}</li>
             <li>Estado: {category.active ? 'Ativa' : 'Inativa'}</li>
@@ -250,7 +253,7 @@ function CategoryPage() {
   );
 }
 
-function CartPage() {
+function CartPage({ demo }: { demo: boolean }) {
   const { cart, setCart } = useCart();
   const total = cart.reduce((sum, item) => sum + item.priceCents, 0);
   const navigate = useNavigate();
@@ -262,19 +265,19 @@ function CartPage() {
   return (
     <PageShell>
       <div className="mx-auto max-w-4xl">
-        <h1 className="text-3xl font-bold text-slate-900">Carrinho</h1>
+        <h1 className="text-3xl font-bold text-ink">Carrinho</h1>
         <div className="mt-6 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="space-y-4">
             {cart.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600">
+              <div className="rounded-2xl border border-dashed border-line-strong bg-surface p-8 text-center text-ink-secondary">
                 O carrinho está vazio. Explore o catálogo para encontrar fornecedores.
               </div>
             ) : (
               cart.map((item) => (
-                <div key={item.categoryId} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div key={item.categoryId} className="flex items-center justify-between rounded-2xl border border-line bg-surface p-4 shadow-sm">
                   <div>
-                    <p className="font-medium text-slate-900">{item.name}</p>
-                    <p className="text-sm text-slate-500">{formatMoney(item.priceCents)}</p>
+                    <p className="font-medium text-ink">{item.name}</p>
+                    <p className="text-sm text-ink-muted">{formatMoney(item.priceCents)}</p>
                   </div>
                   <button onClick={() => remove(item.categoryId)} className="text-sm font-medium text-red-600">
                     Remover
@@ -284,17 +287,17 @@ function CartPage() {
             )}
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-semibold text-slate-900">Resumo</h2>
-            <div className="mt-4 flex items-center justify-between text-sm text-slate-600">
+          <div className="rounded-2xl border border-line bg-surface p-5 shadow-sm">
+            <h2 className="text-lg font-semibold text-ink">Resumo</h2>
+            <div className="mt-4 flex items-center justify-between text-sm text-ink-secondary">
               <span>Subtotal</span>
               <span>{formatMoney(total)}</span>
             </div>
-            <div className="mt-2 flex items-center justify-between text-sm text-slate-600">
+            <div className="mt-2 flex items-center justify-between text-sm text-ink-secondary">
               <span>Taxa de processamento</span>
               <span>€0,00</span>
             </div>
-            <div className="mt-4 border-t border-slate-200 pt-4 text-lg font-semibold text-slate-900">
+            <div className="mt-4 border-t border-line pt-4 text-lg font-semibold text-ink">
               <div className="flex items-center justify-between">
                 <span>Total</span>
                 <span>{formatMoney(total)}</span>
@@ -302,10 +305,10 @@ function CartPage() {
             </div>
             <button
               onClick={() => navigate('/checkout')}
-              disabled={cart.length === 0}
-              className="mt-5 w-full rounded-lg bg-brand-500 px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+              disabled={demo || cart.length === 0}
+              className="mt-5 w-full rounded-lg bg-action px-4 py-3 text-sm font-medium text-action-ink disabled:cursor-not-allowed disabled:bg-disabled"
             >
-              Finalizar compra
+              {demo ? 'Checkout indisponível no demo' : 'Finalizar compra'}
             </button>
           </div>
         </div>
@@ -345,15 +348,15 @@ function CheckoutPage() {
 
   return (
     <PageShell>
-      <div className="mx-auto max-w-3xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h1 className="text-3xl font-bold text-slate-900">Checkout</h1>
+      <div className="mx-auto max-w-3xl rounded-2xl border border-line bg-surface p-6 shadow-sm">
+        <h1 className="text-3xl font-bold text-ink">Checkout</h1>
 
         <div className="mt-6 grid gap-5 md:grid-cols-2">
           <div className="space-y-4 md:col-span-2">
-            <label className="block text-sm font-medium text-slate-700">
+            <label className="block text-sm font-medium text-ink-secondary">
               Email de entrega
               <input
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-0 focus:border-brand-500"
+                className="mt-1 w-full rounded-lg border border-line-strong px-3 py-2 outline-none ring-0 focus:border-brand-500"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
               />
@@ -361,17 +364,17 @@ function CheckoutPage() {
           </div>
 
           {cart.map((item) => (
-            <div key={item.categoryId} className="rounded-xl border border-slate-200 p-3">
-              <p className="font-medium text-slate-900">{item.name}</p>
-              <p className="text-sm text-slate-500">{formatMoney(item.priceCents)}</p>
+            <div key={item.categoryId} className="rounded-xl border border-line p-3">
+              <p className="font-medium text-ink">{item.name}</p>
+              <p className="text-sm text-ink-muted">{formatMoney(item.priceCents)}</p>
             </div>
           ))}
         </div>
 
-        <div className="mt-6 rounded-xl bg-slate-50 p-4">
-          <div className="flex items-center justify-between text-sm text-slate-600">
+        <div className="mt-6 rounded-xl bg-muted p-4">
+          <div className="flex items-center justify-between text-sm text-ink-secondary">
             <span>Total</span>
-            <span className="text-lg font-semibold text-slate-900">{formatMoney(total)}</span>
+            <span className="text-lg font-semibold text-ink">{formatMoney(total)}</span>
           </div>
         </div>
 
@@ -382,7 +385,7 @@ function CheckoutPage() {
         <button
           onClick={submit}
           disabled={submitting || cart.length === 0}
-          className="mt-6 w-full rounded-lg bg-brand-500 px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+          className="mt-6 w-full rounded-lg bg-action px-4 py-3 text-sm font-medium text-action-ink disabled:cursor-not-allowed disabled:bg-disabled"
         >
           {submitting ? 'Processando...' : 'Simular pagamento'}
         </button>
@@ -432,7 +435,7 @@ function AdminPage() {
   return (
     <PageShell>
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold text-slate-900">Painel administrativo</h1>
+        <h1 className="text-3xl font-bold text-ink">Painel administrativo</h1>
 
         {dashboard && (
           <div className="grid gap-4 md:grid-cols-4">
@@ -443,23 +446,25 @@ function AdminPage() {
           </div>
         )}
 
+        <AppearancePanel auth={auth} />
+
         <CategoryManagement onChanged={() => { apiFetch<AdminDashboard>('/api/admin/dashboard').then(setDashboard).catch(() => setDashboard(null)); }} />
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-xl font-semibold text-slate-900">Pedidos recentes</h2>
+        <section className="rounded-2xl border border-line bg-surface p-5 shadow-sm">
+          <h2 className="text-xl font-semibold text-ink">Pedidos recentes</h2>
           <div className="mt-4 space-y-3">
             {orders.length === 0 ? (
-              <p className="text-sm text-slate-500">Ainda não existem pedidos.</p>
+              <p className="text-sm text-ink-muted">Ainda não existem pedidos.</p>
             ) : (
               orders.slice(0, 5).map((order) => (
-                <div key={order.id} className="flex items-center justify-between rounded-xl border border-slate-200 p-3">
+                <div key={order.id} className="flex items-center justify-between rounded-xl border border-line p-3">
                   <div>
                     <Link to={`/orders/${order.id}`} className="font-medium text-brand-500 underline">{order.orderNumber}</Link>
-                    <p className="text-sm text-slate-500">{order.customerEmail}</p>
+                    <p className="text-sm text-ink-muted">{order.customerEmail}</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-medium text-slate-900">{formatMoney(order.totalCents ?? 0)}</p>
-                    <p className="text-xs uppercase text-slate-500">{order.status}</p>
+                    <p className="font-medium text-ink">{formatMoney(order.totalCents ?? 0)}</p>
+                    <p className="text-xs uppercase text-ink-muted">{order.status}</p>
                   </div>
                 </div>
               ))
@@ -467,18 +472,18 @@ function AdminPage() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-xl font-semibold text-slate-900">Outbox de emails</h2>
+        <section className="rounded-2xl border border-line bg-surface p-5 shadow-sm">
+          <h2 className="text-xl font-semibold text-ink">Outbox de emails</h2>
           <Link to="/dev/email-outbox" className="text-brand-500 underline">Ver emails de entrega</Link>
           <div className="mt-4 space-y-3">
             {outbox.length === 0 ? (
-              <p className="text-sm text-slate-500">Sem emails na outbox.</p>
+              <p className="text-sm text-ink-muted">Sem emails na outbox.</p>
             ) : (
               outbox.slice(0, 5).map((entry) => (
-                <div key={entry.id} className="rounded-xl border border-slate-200 p-3">
-                  <p className="font-medium text-slate-900">{entry.subject}</p>
-                  <p className="text-sm text-slate-500">{entry.recipient}</p>
-                  <p className="text-xs uppercase text-slate-500">{entry.status}</p>
+                <div key={entry.id} className="rounded-xl border border-line p-3">
+                  <p className="font-medium text-ink">{entry.subject}</p>
+                  <p className="text-sm text-ink-muted">{entry.recipient}</p>
+                  <p className="text-xs uppercase text-ink-muted">{entry.status}</p>
                 </div>
               ))
             )}
@@ -491,9 +496,9 @@ function AdminPage() {
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-slate-900">{value}</p>
+    <div className="rounded-2xl border border-line bg-surface p-4 shadow-sm">
+      <p className="text-sm text-ink-muted">{label}</p>
+      <p className="mt-2 text-2xl font-bold text-ink">{value}</p>
     </div>
   );
 }
@@ -502,11 +507,16 @@ function PageShell({ children }: { children: React.ReactNode }) {
   return <div className="mx-auto max-w-6xl px-4 py-8">{children}</div>;
 }
 
-function App() {
+function DemoUnavailablePage() {
+  return <PageShell><h1 className="text-2xl font-bold">Disponível apenas na aplicação local</h1><p className="my-4">{demoNotice}</p><Link to="/" className="text-brand-500 underline">Voltar ao catálogo demo</Link></PageShell>;
+}
+
+function App({ demo = isDemo }: { demo?: boolean } = {}) {
   const { auth, setAuth } = useAuth();
   const { cart } = useCart();
 
   const switchRole = async (role: Role) => {
+    if (demo) return;
     try {
       const response = await apiFetch<{ user: AuthState }>('/api/dev/session', {
         method: 'POST',
@@ -519,20 +529,22 @@ function App() {
   };
 
   return (
-    <>
-      <Header />
-      <div className="border-b border-slate-200 bg-slate-50">
+    <div className="marketplace-shell">
+      <ThemeController auth={auth} demo={demo} />
+      {demo && <div role="status" className="bg-amber-100 px-4 py-3 text-center font-medium text-amber-900">{demoNotice}</div>}
+      <Header demo={demo} />
+      <div className="border-b border-line bg-muted">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-2 text-sm text-slate-600">
-            <span>Modo local:</span>
-            <span className="font-medium text-slate-900">{auth?.mode ?? 'development'}</span>
+          <div className="flex items-center gap-2 text-sm text-ink-secondary">
+            <span>{demo ? 'Modo público:' : 'Modo local:'}</span>
+            <span className="font-medium text-ink">{demo ? 'demo' : auth?.mode ?? 'development'}</span>
           </div>
-          {auth?.mockAccountSwitchingEnabled && (
+          {!demo && auth?.mockAccountSwitchingEnabled && (
             <div className="flex items-center gap-2">
-              <button onClick={() => switchRole('GUEST')} className={`rounded-lg px-3 py-2 text-sm font-medium ${auth.role === 'GUEST' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}>
+              <button onClick={() => switchRole('GUEST')} className={`rounded-lg px-3 py-2 text-sm font-medium ${auth.role === 'GUEST' ? 'bg-action text-action-ink' : 'bg-surface text-ink-secondary border border-line'}`}>
                 GUEST
               </button>
-              <button onClick={() => switchRole('ADMIN')} className={`rounded-lg px-3 py-2 text-sm font-medium ${auth.role === 'ADMIN' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 border border-slate-200'}`}>
+              <button onClick={() => switchRole('ADMIN')} className={`rounded-lg px-3 py-2 text-sm font-medium ${auth.role === 'ADMIN' ? 'bg-action text-action-ink' : 'bg-surface text-ink-secondary border border-line'}`}>
                 ADMIN
               </button>
             </div>
@@ -540,19 +552,23 @@ function App() {
         </div>
       </div>
 
-      <Routes>
-        <Route path="/" element={<HomePage />} />
+      <main className="market-main"><Routes>
+        <Route path="/" element={<HomePage demo={demo} />} />
         <Route path="/categories/:slug" element={<CategoryPage />} />
-        <Route path="/cart" element={<CartPage />} />
-        <Route path="/checkout" element={<CheckoutPage />} />
-        <Route path="/success" element={<OrderDetailsPage auth={auth} />} />
-        <Route path="/orders" element={<OrdersPage auth={auth} />} />
-        <Route path="/orders/:id" element={<OrderDetailsPage auth={auth} />} />
-        <Route path="/dev/email-outbox" element={<EmailOutboxPage auth={auth} />} />
-        <Route path="/admin" element={<AdminPage />} />
+        <Route path="/cart" element={<CartPage demo={demo} />} />
+        <Route path="/checkout" element={demo ? <DemoUnavailablePage /> : <CheckoutPage />} />
+        <Route path="/success" element={demo ? <DemoUnavailablePage /> : <OrderDetailsPage auth={auth} />} />
+        <Route path="/orders" element={demo ? <DemoUnavailablePage /> : <OrdersPage auth={auth} />} />
+        <Route path="/orders/:id" element={demo ? <DemoUnavailablePage /> : <OrderDetailsPage auth={auth} />} />
+        <Route path="/dev/email-outbox" element={demo ? <DemoUnavailablePage /> : <EmailOutboxPage auth={auth} />} />
+        <Route path="/admin" element={demo ? <DemoUnavailablePage /> : <AdminPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </>
+      </Routes></main>
+      <footer className="market-footer">
+        <div><p className="market-brand font-semibold text-ink">Supplier Market</p><p>{demo ? 'Demonstração fictícia. Sem compras ou entrega de contactos.' : 'Contactos privados. Entrega apenas após confirmação de pagamento.'}</p></div>
+        <nav aria-label="Rodapé"><Link to="/">Catálogo</Link><Link to="/cart">Carrinho</Link>{!demo && <Link to="/orders">Meus pedidos</Link>}</nav>
+      </footer>
+    </div>
   );
 }
 

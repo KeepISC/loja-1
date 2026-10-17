@@ -1,4 +1,8 @@
+import { basePath, isDemo } from './deployment';
+import { demoApiFetch } from './demo';
+
 export async function apiFetch<T>(input: string, init: RequestInit = {}): Promise<T> {
+  if (isDemo) return demoApiFetch<T>(input, init, basePath);
   const headers = new Headers(init.headers);
   // FormData must retain the browser-generated multipart boundary.
   if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');

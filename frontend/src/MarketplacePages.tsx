@@ -9,17 +9,17 @@ type ContactDraft = { supplierName: string; email: string; telephone: string; wh
 type Contact = ContactDraft & { id: string };
 type Delivery = { recipient: string; subject: string; body: string };
 type OutboxItem = Delivery & { id: string; orderId: string; status: string; attempts: number; lastError?: string | null };
-const panel = 'rounded-2xl border border-slate-200 bg-white p-5 shadow-sm';
-const button = 'rounded-lg bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-50';
-const secondary = 'rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-50';
-const inputClass = 'mt-1 w-full rounded-lg border border-slate-300 px-3 py-2';
+const panel = 'rounded-2xl border border-line bg-surface p-5 shadow-sm';
+const button = 'rounded-lg bg-action px-3 py-2 text-sm text-action-ink disabled:opacity-50';
+const secondary = 'rounded-lg border border-line-strong px-3 py-2 text-sm disabled:opacity-50';
+const inputClass = 'mt-1 w-full rounded-lg border border-line-strong px-3 py-2';
 const money = (cents: number) => new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' }).format(cents / 100);
 const message = (error: unknown) => error instanceof Error ? error.message : 'Não foi possível concluir o pedido.';
 
 function Shell({ children }: { children: ReactNode }) { return <div className="mx-auto max-w-6xl space-y-5 px-4 py-8">{children}</div>; }
 function ErrorMessage({ text }: { text?: string | null }) { return text ? <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-700">{text}</p> : null; }
 function Field({ label, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string }) {
-  return <label className="block text-sm font-medium text-slate-700">{label}<input {...props} className={inputClass} /></label>;
+  return <label className="block text-sm font-medium text-ink-secondary">{label}<input {...props} className={inputClass} /></label>;
 }
 
 function useResource<T>(url: string | null, identity = '') {
@@ -88,12 +88,12 @@ function ContactManager({ category }: { category: Category }) {
       resource.reload();
     } catch (err) { setError(message(err)); } finally { setBusy(false); }
   };
-  return <section className="space-y-4 border-t border-slate-200 pt-5">
+  return <section className="space-y-4 border-t border-line pt-5">
     <h3 className="text-lg font-semibold">Contactos privados — {category.name}</h3>
     <ErrorMessage text={resource.error || error} />
     {resource.loading && <p>Carregando contactos...</p>}
     <ul className="space-y-2">{resource.data?.contacts.map((contact) => <li key={contact.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
-      <div className="min-w-0 break-words"><p>{contact.supplierName}</p><p className="text-sm text-slate-500">{contact.email}</p></div>
+      <div className="min-w-0 break-words"><p>{contact.supplierName}</p><p className="text-sm text-ink-muted">{contact.email}</p></div>
       <div className="flex gap-2"><button className={secondary} disabled={busy} onClick={() => { setEditing(contact.id); setDraft({ supplierName: contact.supplierName, email: contact.email, telephone: contact.telephone || '', whatsapp: contact.whatsapp || '', website: contact.website || '', notes: contact.notes || '' }); }}>Editar contacto</button><button className={secondary} disabled={busy} onClick={() => remove(contact.id)}>Eliminar contacto</button></div>
     </li>)}</ul>
     <form onSubmit={save} className="space-y-3">

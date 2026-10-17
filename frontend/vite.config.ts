@@ -1,7 +1,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  base: mode === 'pages' ? '/loja-1/' : '/',
+  // Pages publishes only curated demo assets, never backend/public (which contains uploads).
+  publicDir: mode === 'pages' ? 'pages-public' : 'public',
+  // No user-defined environment variables belong in the public demo bundle.
+  envPrefix: mode === 'pages' ? [] : 'VITE_',
   plugins: [react()],
   server: {
     port: 5173,
@@ -25,4 +30,4 @@ export default defineConfig({
     port: 4173,
     host: '127.0.0.1',
   },
-});
+}));

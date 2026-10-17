@@ -37,6 +37,31 @@ The command automatically runs Prisma DB push. To initialize demo data explicitl
 - Development email viewer (ADMIN): http://localhost:5173/dev/email-outbox
 - Email outbox contents API (ADMIN session required): http://localhost:3001/api/dev/email-outbox
 
+## GitHub Pages demo
+
+The `pages` build targets `https://keepisc.github.io/loja-1/`. It uses `/loja-1/` for assets and hash routes such as `/loja-1/#/categories/tecnologia-demo`, so direct links and refresh do not require server rewrites.
+
+This is a clearly labeled, fictional catalog/cart demo. It makes no backend requests, reads no local customer/cart/checkout storage, and offers no checkout, payments, order history, admin tools or contact/email delivery. Direct visits to those routes show an unavailable notice. Demo carts live only in memory. No supplier contact records, SQLite files, environment variables, uploads or generated outbox files are included; only the curated `frontend/pages-public` assets are copied. This does not change the local Express/SQLite application or complete its outstanding browser acceptance.
+
+Build and preview the demo from the project root:
+
+```powershell
+npm run build:pages --workspace frontend
+npm run preview:pages --workspace frontend
+```
+
+Open `http://127.0.0.1:4173/loja-1/` after a successful build. Use the same `pages` mode when previewing; the ordinary preview command rebuilds the local application instead. If the restricted environment reports esbuild `spawn EPERM`, run these commands in a normal PowerShell window outside that environment. A blocked build is not a successful verification.
+
+The workflow `.github/workflows/pages.yml` runs on pushes to `main` and manual dispatch, checks/tests the frontend, builds in Pages demo mode and uploads only `frontend/dist`. It skips package install hooks because the static demo requires no Prisma generation or backend initialization. No application credentials or repository secrets are needed; GitHub's built-in deployment token is used only by Actions.
+
+Before the first deployment, open repository **Settings → Pages → Build and deployment → Source**, select **GitHub Actions**, and ensure Actions is enabled. If the `github-pages` environment has branch restrictions or required reviewers, allow `main` and approve its deployment when requested. After you review, commit and push the changes yourself, inspect the workflow result, then verify the target URL. No commit, push or live deployment is performed by preparing these files.
+
+Browser checks still required after deployment: confirm the demo banner, catalog images and details, cart add/remove, refresh a hash detail route, and verify checkout/admin/order/outbox routes remain unavailable. In DevTools, confirm no `/api` or external backend requests occur and no contact data is present.
+
+Verification on 2026-10-17: both TypeScript projects and the Vite configuration type-check passed; 47 automated tests passed (29 backend, 18 frontend, including four Pages regressions), and the backend compiled during testing. The production Pages build was attempted once and blocked before compilation by esbuild `spawn EPERM`. No current Pages artifact, browser run or GitHub Actions deployment is claimed as verified. A permitted local build or successful workflow run and the browser checks above are still required.
+
+References: [Vite GitHub Pages deployment](https://vite.dev/guide/static-deploy.html#github-pages), [GitHub custom Pages workflows](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
+
 ## Mock accounts
 
 The project ships with two mock identities for local development only.

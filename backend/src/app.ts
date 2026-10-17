@@ -9,6 +9,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { publicDir, uploadDir, requireDevelopment } from './config.js';
 import { ensureGuest, resolveGuest, revokeGuest } from './guest-access.js';
+import { createAppearanceRepository, themeIds } from './appearance.js';
 
 declare module 'express-session' {
   interface SessionData {
@@ -71,6 +72,7 @@ function customerOrder(order: OrderWithData) {
 export function createApp(options: { uploadDirectory?: string } = {}) {
   requireDevelopment();
   const app = express();
+  const appearance = createAppearanceRepository(prisma);
   const uploads = options.uploadDirectory ?? uploadDir;
 
   app.use((_req, res, next) => {
@@ -280,6 +282,16 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, status: 'healthy' });
   });
+
+  app.get('/api/appearance', asyncRoute(async (_req, res) => {
+    res.set('Cache-Control', 'no-store').json({ theme: await appearance.read() });
+  }));
+
+  app.put('/api/admin/appearance', requireRole('ADMIN'), asyncRoute(async (req, res) => {
+    const parsed = z.object({ theme: z.enum(themeIds) }).strict().safeParse(req.body);
+    if (!parsed.success) throw new HttpError(400, 'Invalid theme.');
+    res.set('Cache-Control', 'no-store').json({ theme: await appearance.write(parsed.data.theme) });
+  }));
 
   app.get('/api/auth/me', asyncRoute(async (req, res) => {
     await ensureGuest(req, res, prisma);

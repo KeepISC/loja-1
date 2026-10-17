@@ -1,5 +1,6 @@
 -- Isolated SQLite fixture matching prisma/schema.prisma; never applied to the development database.
 PRAGMA foreign_keys = ON;
+CREATE TABLE SiteSetting (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
 CREATE TABLE User (id TEXT PRIMARY KEY NOT NULL, role TEXT NOT NULL, displayName TEXT NOT NULL, email TEXT NOT NULL UNIQUE, createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE Category (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, description TEXT NOT NULL, priceCents INTEGER NOT NULL, imageUrl TEXT NOT NULL, active BOOLEAN NOT NULL DEFAULT true, createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME NOT NULL);
 CREATE TABLE SupplierContact (id TEXT PRIMARY KEY NOT NULL, categoryId TEXT NOT NULL REFERENCES Category(id) ON DELETE CASCADE ON UPDATE CASCADE, supplierName TEXT NOT NULL, email TEXT NOT NULL, telephone TEXT, whatsapp TEXT, website TEXT, notes TEXT);

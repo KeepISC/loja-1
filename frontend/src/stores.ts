@@ -1,3 +1,5 @@
+import { isDemo } from './deployment';
+
 export type Role = 'ADMIN' | 'GUEST';
 export type AuthState = {
   role: Role;
@@ -53,6 +55,6 @@ export const createAuthStore = () => createStore<AuthState | null>(null);
 
 // One store per application, shared by the header, category buttons and checkout.
 let browserStorage: Storage | undefined;
-try { browserStorage = typeof window === 'undefined' ? undefined : window.localStorage; } catch { /* Storage may be disabled. */ }
+try { browserStorage = isDemo || typeof window === 'undefined' ? undefined : window.localStorage; } catch { /* Storage may be disabled. */ }
 export const cartStore = createCartStore(browserStorage);
 export const authStore = createAuthStore();

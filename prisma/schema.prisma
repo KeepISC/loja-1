@@ -16,6 +16,11 @@ model User {
   orders      Order[]
 }
 
+model SiteSetting {
+  key   String @id
+  value String
+}
+
 model Category {
   id          String           @id @default(uuid())
   name        String
