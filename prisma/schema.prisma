@@ -1,0 +1,93 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(uuid())
+  role        String
+  displayName String
+  email       String   @unique
+  createdAt   DateTime @default(now())
+  orders      Order[]
+}
+
+model Category {
+  id          String           @id @default(uuid())
+  name        String
+  slug        String           @unique
+  description String
+  priceCents  Int
+  imageUrl    String
+  active      Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  contacts    SupplierContact[]
+  items       OrderItem[]
+}
+
+model SupplierContact {
+  id           String   @id @default(uuid())
+  categoryId   String
+  supplierName String
+  email        String
+  telephone    String?
+  whatsapp     String?
+  website      String?
+  notes        String?
+  category     Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+}
+
+model Order {
+  id            String       @id @default(uuid())
+  orderNumber   String       @unique
+  userId        String?
+  customerEmail String
+  status        String       @default("PENDING")
+  totalCents    Int
+  createdAt     DateTime     @default(now())
+  user          User?        @relation(fields: [userId], references: [id])
+  items         OrderItem[]
+  payment       Payment?
+  emailDelivery EmailDelivery?
+}
+
+model OrderItem {
+  id           String  @id @default(uuid())
+  orderId      String
+  categoryId   String
+  categoryName String
+  priceCents   Int
+  quantity     Int     @default(1)
+  order        Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  category     Category @relation(fields: [categoryId], references: [id])
+}
+
+model Payment {
+  id          String    @id @default(uuid())
+  orderId     String    @unique
+  status      String    @default("PENDING")
+  provider    String    @default("DUMMY")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  confirmedAt DateTime?
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model EmailDelivery {
+  id        String    @id @default(uuid())
+  orderId   String    @unique
+  status    String    @default("NOT_SENT")
+  recipient String
+  subject   String
+  body      String
+  attempts  Int       @default(0)
+  lastError String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}

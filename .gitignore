@@ -1,0 +1,67 @@
+# Local environment and credentials; publish only the placeholder template.
+.env*
+!.env.example
+.npmrc
+.netrc
+.aws/
+.ssh/
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+secrets*.json
+service-account*.json
+id_rsa*
+id_ed25519*
+
+# SQLite and other local database runtime files.
+/database/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.wal
+*.shm
+
+# Private uploads, contact exports and generated email deliveries.
+uploads/
+outbox/
+email-outbox/
+email_outbox/
+outbox.json
+*-outbox.json
+*.outbox.json
+private/
+customer-files/
+supplier-contacts*.csv
+supplier-contacts*.json
+
+# Dependencies and generated artifacts.
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+.cache/
+*.tsbuildinfo
+
+# Temporary files, logs and local editor/agent state.
+tmp/
+temp/
+logs/
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*.pid
+*~
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.codex/
