@@ -15,6 +15,8 @@ Only fictional development fixtures belong in this repository. Local environment
 
 ## Local setup
 
+Before exposing any backend remotely, follow [SECURITY_REMOTE_TESTING.md](SECURITY_REMOTE_TESTING.md). Ordinary local mode refuses forwarded/non-local hosts. The dedicated remote profile serves a built frontend with guest-only mock access and requires externally configured Cloudflare Access plus connector-side token validation. Do not tunnel Vite or treat development mode as public authentication. API writes now require a session-bound CSRF header; the frontend handles this automatically.
+
 Use Node.js 24 (the regression tests use the built-in SQLite API and module hooks).
 
 1. Install dependencies:
@@ -122,10 +124,10 @@ Guests can read `/api/orders` for their own order history and `/api/orders/:id/d
 Run this command from the project root (no running application or database required):
 
 ```powershell
-npm run preview:emails --workspace backend
+npm run preview:emails --workspace backend -- --theme all
 ```
 
-It builds the backend and prints paths to three fictional HTML previews and their `.txt` alternatives in a new temporary directory: purchase confirmation, supplier-contact delivery, and payment-pending confirmation. Open the printed `.html` files in your browser. All preview data uses reserved example domains; no customer records are read, modified or sent. The example HTTPS buttons demonstrate styling and do not point to a working marketplace.
+It builds the backend and prints an HTML index for all four email themes and their plain-text alternatives: purchase confirmation, supplier-contact delivery, payment-pending and failed-payment confirmation. All preview data uses reserved example domains; explicit `--theme all` previews never read the database or send email. Omit the option to read the active local appearance setting, or use `--theme minimal` (also Classic, Marketplace or Dark in lowercase). The local admin panel also offers fictional previews following the saved or unsaved preview theme. See [EMAIL_THEMES.md](EMAIL_THEMES.md) for theme selection, stored-email previews, compatibility and verification details.
 
 For actual local deliveries, start the application with `npm run dev`, complete a dummy purchase, switch to ADMIN and visit http://localhost:5173/dev/email-outbox. Choose **Ver versão HTML** on its email, or open the paid delivery from the guest's own order detail page. Preview the HTML at desktop and narrow mobile widths; also check the plain-text view. The table layout uses inline CSS, system fonts, text branding and an Outlook conditional wrapper, without external images or styles. Actual Gmail, Outlook and Apple Mail rendering must still be checked manually; browser previews and automated rendering tests do not certify mail-client compatibility.
 

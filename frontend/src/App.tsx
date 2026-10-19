@@ -5,6 +5,7 @@ import { apiFetch } from './api';
 import { isDemo } from './deployment';
 import { demoNotice } from './demo';
 import { AppearancePanel, ThemeController, useActiveTheme } from './Appearance';
+import { EmailThemePreview } from './EmailThemePreview';
 import type { ThemeId } from './themes';
 import { StoreHeader, StoreHome, StoreCartPage, StoreProductPage } from './Storefront';
 import { AddToCartButton, CartFeedbackNotice, useCartFeedback } from './CartFeedback';
@@ -449,6 +450,7 @@ function AdminPage() {
         )}
 
         <AppearancePanel auth={auth} />
+        <EmailThemePreview auth={auth} />
 
         <CategoryManagement onChanged={() => { apiFetch<AdminDashboard>('/api/admin/dashboard').then(setDashboard).catch(() => setDashboard(null)); }} />
 

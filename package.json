@@ -9,6 +9,7 @@
     "dev": "concurrently \"npm run db:push --workspace backend && npm run dev --workspace backend\" \"npm run dev --workspace frontend\"",
     "build": "npm run build --workspace backend && npm run build --workspace frontend",
     "start": "npm run start --workspace backend",
+    "start:remote": "npm run build --workspace backend && cross-env NODE_ENV=production npm run build --workspace frontend && cross-env REMOTE_TESTING=true node backend/dist/index.js",
     "test": "npm run test --workspaces",
     "typecheck": "npm run typecheck --workspaces"
   },

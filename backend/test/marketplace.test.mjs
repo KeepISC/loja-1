@@ -2,12 +2,14 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { encodeEmailContent, decodeEmailContent } from '../src/email-content.ts';
+import { themeIds } from '../src/appearance.ts';
+import { emailPreviewTypes, renderFictionalEmail } from '../src/email-preview.ts';
 
 const temp = await mkdtemp(path.join(tmpdir(), 'marketplace-phase1-'));
 const database = path.join(temp, 'test.db');
@@ -28,7 +30,16 @@ const start = async () => {
   await once(running, 'listening');
   return running;
 };
-const post = (agent, url, body = {}) => agent.post(url).send(body).timeout({ deadline: 15000 });
+const csrfHeaders = async (agent) => {
+  const response = await agent.get('/api/csrf');
+  if (response.status !== 200) return {};
+  return { 'X-CSRF-Token': response.body.csrfToken,
+    ...(!agent.jar ? { Cookie: (response.headers['set-cookie'] ?? []).map((cookie) => cookie.split(';')[0]).join('; ') } : {}) };
+};
+const post = async (agent, url, body = {}) => {
+  const headers = await csrfHeaders(agent);
+  return agent.post(url).set(headers).send(body).timeout({ deadline: 15000 });
+};
 const bodyContainsContact = (body) => /private-supplier-[ab]@example\.test/.test(JSON.stringify(body));
 const newOrder = async (buyer, email = 'buyer@example.test', extra = {}) => {
   const result = await post(buyer, '/api/orders', { customerEmail: email, items: [{ categoryId: a.id }], ...extra });
@@ -38,6 +49,7 @@ const newOrder = async (buyer, email = 'buyer@example.test', extra = {}) => {
 const readOrder = (id) => prisma.order.findUniqueOrThrow({ where: { id }, include: { items: true, payment: true, emailDelivery: true } });
 
 before(async () => {
+  await mkdir(uploads, { recursive: true });
   server = await start();
   admin = request.agent(server);
   assert.equal((await post(admin, '/api/dev/session', { role: 'ADMIN' })).status, 200);
@@ -139,7 +151,7 @@ test('Payment status, ownership, role and totals cannot be forged in ordinary or
   assert.equal(order.totalCents, 1600);
   assert.equal(order.items.length, 1);
   assert.equal((await post(buyer, '/api/admin/orders/' + order.id + '/confirm-payment')).status, 403);
-  assert.equal((await buyer.put('/api/orders/' + order.id).send({ status: 'PAID' })).status, 404);
+  assert.equal((await buyer.put('/api/orders/' + order.id).set(await csrfHeaders(buyer)).send({ status: 'PAID' })).status, 404);
   assert.equal((await readOrder(order.id)).payment.status, 'PENDING');
 });
 
@@ -243,7 +255,7 @@ test('S04: reject HTML, SVG, MIME spoofing, oversized files and unauthorized upl
     ['evil.svg', 'image/png', Buffer.from('<svg onload="alert(1)"/>')],
     ['large.png', 'image/png', Buffer.alloc(2 * 1024 * 1024 + 1)],
   ]) {
-    const result = await admin.post(`/api/admin/categories/${a.id}/image`).attach('image', bytes, { filename, contentType });
+    const result = await admin.post(`/api/admin/categories/${a.id}/image`).set(await csrfHeaders(admin)).attach('image', bytes, { filename, contentType });
     assert.equal(result.status, 400, filename);
   }
   assert.equal((await request(server).post(`/api/admin/categories/${a.id}/image`).attach('image', Buffer.from('not an image'), { filename: 'x.png', contentType: 'image/png' })).status, 403);
@@ -251,7 +263,7 @@ test('S04: reject HTML, SVG, MIME spoofing, oversized files and unauthorized upl
 
 test('S04/F05: valid image gets server filename and safe headers; legacy active uploads are blocked', async () => {
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/tGQAAAAASUVORK5CYII=', 'base64');
-  const uploaded = await admin.post(`/api/admin/categories/${a.id}/image`).attach('image', png, { filename: 'untrusted.html', contentType: 'image/png' });
+  const uploaded = await admin.post(`/api/admin/categories/${a.id}/image`).set(await csrfHeaders(admin)).attach('image', png, { filename: 'untrusted.html', contentType: 'image/png' });
   assert.equal(uploaded.status, 200);
   assert.match(uploaded.body.imageUrl, /^\/uploads\/[0-9a-f-]+\.png$/);
   const served = await request(server).get(uploaded.body.imageUrl);
@@ -260,12 +272,12 @@ test('S04/F05: valid image gets server filename and safe headers; legacy active 
   assert.equal(served.headers['x-content-type-options'], 'nosniff');
   assert.match(served.headers['content-security-policy'], /sandbox/);
   assert.deepEqual(served.body, png);
-  assert.equal((await admin.post(`/api/admin/categories/${a.id}/image`).attach('image', png, { filename: 'wrong.jpg', contentType: 'image/jpeg' })).status, 400);
+  assert.equal((await admin.post(`/api/admin/categories/${a.id}/image`).set(await csrfHeaders(admin)).attach('image', png, { filename: 'wrong.jpg', contentType: 'image/jpeg' })).status, 400);
   await writeFile(path.join(uploads, 'legacy.html'), '<script>alert(1)</script>');
   await writeFile(path.join(uploads, 'legacy.png'), '<script>alert(1)</script>');
   for (const url of ['/uploads/legacy.html', '/uploads/legacy.png', '/upload%73/legacy.html']) assert.equal((await request(server).get(url)).status, 404);
   const before = (await readdir(uploads)).length;
-  assert.equal((await admin.post('/api/admin/categories/missing/image').attach('image', png, { filename: 'ok.png', contentType: 'image/png' })).status, 404);
+  assert.equal((await admin.post('/api/admin/categories/missing/image').set(await csrfHeaders(admin)).attach('image', png, { filename: 'ok.png', contentType: 'image/png' })).status, 404);
   assert.equal((await readdir(uploads)).length, before);
 });
 
@@ -334,9 +346,9 @@ test('F06: reseeding preserves edited/deactivated categories and deleted demo co
 test('F07: expected conflicts/missing records/invalid JSON return controlled errors; backend stays alive', async () => {
   const duplicate = await post(admin, '/api/admin/categories', { name: a.name, slug: a.slug, description: a.description, priceCents: a.priceCents });
   assert.equal(duplicate.status, 409);
-  const missing = await admin.put('/api/admin/categories/missing').send({ name: a.name, slug: 'missing-slug', description: a.description, priceCents: 100 });
+  const missing = await admin.put('/api/admin/categories/missing').set(await csrfHeaders(admin)).send({ name: a.name, slug: 'missing-slug', description: a.description, priceCents: 100 });
   assert.equal(missing.status, 404);
-  assert.equal((await admin.post('/api/orders').set('Content-Type', 'application/json').send('{bad json')).status, 400);
+  assert.equal((await admin.post('/api/orders').set(await csrfHeaders(admin)).set('Content-Type', 'application/json').send('{bad json')).status, 400);
   assert.equal((await request(server).get('/api/health')).status, 200);
 });
 
@@ -426,13 +438,13 @@ test('V01/F03/F04: compiled API plus frontend checkout completes the private, id
     const created = await post(manager, '/api/admin/categories', categoryData);
     assert.equal(created.status, 201);
     const category = created.body.item;
-    const edited = await manager.put(`/api/admin/categories/${category.id}`).send({ ...categoryData, name: 'Phase 2 Edited', priceCents: 1950 });
+    const edited = await manager.put(`/api/admin/categories/${category.id}`).set(await csrfHeaders(manager)).send({ ...categoryData, name: 'Phase 2 Edited', priceCents: 1950 });
     assert.equal(edited.status, 200);
     const added = await post(manager, `/api/admin/categories/${category.id}/contacts`, { supplierName: 'Phase 2 Supplier', email: 'before-edit@example.test' });
     assert.equal(added.status, 201);
-    assert.equal((await manager.put(`/api/admin/categories/${category.id}/contacts/${added.body.item.id}`).send({ supplierName: 'Phase 2 Supplier', email: privateEmail, telephone: 'fictional-phone' })).status, 200);
+    assert.equal((await manager.put(`/api/admin/categories/${category.id}/contacts/${added.body.item.id}`).set(await csrfHeaders(manager)).send({ supplierName: 'Phase 2 Supplier', email: privateEmail, telephone: 'fictional-phone' })).status, 200);
     const removed = await post(manager, `/api/admin/categories/${category.id}/contacts`, { supplierName: 'Remove fixture', email: 'remove@example.test' });
-    assert.equal((await manager.delete(`/api/admin/categories/${category.id}/contacts/${removed.body.item.id}`)).status, 200);
+    assert.equal((await manager.delete(`/api/admin/categories/${category.id}/contacts/${removed.body.item.id}`).set(await csrfHeaders(manager))).status, 200);
     assert.equal((await manager.get(`/api/admin/categories/${category.id}/contacts`)).body.contacts.length, 1);
     for (const path of ['/api/categories', '/api/categories/' + category.slug]) {
       const response = await buyer.get(path);
@@ -475,7 +487,7 @@ test('V01/F03/F04: compiled API plus frontend checkout completes the private, id
     const stored = await readOrder(orderId);
     assert.equal(stored.emailDelivery.attempts, 1);
     assert.equal(await prisma.emailDelivery.count({ where: { orderId } }), 1);
-    assert.equal((await manager.delete(`/api/admin/categories/${category.id}`)).status, 200);
+    assert.equal((await manager.delete(`/api/admin/categories/${category.id}`).set(await csrfHeaders(manager))).status, 200);
     assert.ok(!(await buyer.get('/api/categories')).body.items.some((item) => item.id === category.id));
   } finally { await compiled.prisma.$disconnect(); }
 });
@@ -516,7 +528,10 @@ test('Persistent guest credential restores an owned order in a fresh backend wit
     const other = request.agent(restarted); await other.get('/api/auth/me');
     assert.equal((await other.get('/api/orders/' + order.id)).status, 404);
     assert.equal((await post(other, '/api/dev/payments/' + order.id + '/simulate')).status, 404);
-    const confirmed = await request(restarted).post('/api/dev/payments/' + order.id + '/simulate').set('Cookie', credential).send({});
+    const freshCsrf = await request(restarted).get('/api/csrf').set('Cookie', credential);
+    const sessionCookies = (freshCsrf.headers['set-cookie'] ?? []).map((cookie) => cookie.split(';')[0]);
+    const confirmed = await request(restarted).post('/api/dev/payments/' + order.id + '/simulate')
+      .set('Cookie', [credential, ...sessionCookies].join('; ')).set('X-CSRF-Token', freshCsrf.body.csrfToken).send({});
     assert.equal(confirmed.status, 200);
     assert.equal((await request(restarted).get(`/api/orders/${order.id}/delivery`).set('Cookie', credential)).status, 200);
     assert.equal((await other.get(`/api/orders/${order.id}/delivery`)).status, 404);
@@ -582,14 +597,14 @@ test('Appearance: only ADMIN can apply allowlisted themes; all visitors and fres
     assert.equal((await unauthorized.put('/api/admin/appearance').send({ theme: 'dark', role: 'ADMIN' })).status, 403);
   }
   for (const body of [{}, { theme: 'unknown' }, { theme: "dark'; DROP TABLE User;--" }, { theme: 'dark', css: 'url(private)' }]) {
-    assert.equal((await admin.put('/api/admin/appearance').send(body)).status, 400);
+    assert.equal((await admin.put('/api/admin/appearance').set(await csrfHeaders(admin)).send(body)).status, 400);
   }
   for (const theme of ['classic', 'minimal', 'marketplace', 'dark']) {
-    const applied = await admin.put('/api/admin/appearance').send({ theme });
+    const applied = await admin.put('/api/admin/appearance').set(await csrfHeaders(admin)).send({ theme });
     assert.equal(applied.status, 200);
     assert.deepEqual((await visitor.get('/api/appearance')).body, { theme });
   }
-  await admin.put('/api/admin/appearance').send({ theme: 'dark' });
+  await admin.put('/api/admin/appearance').set(await csrfHeaders(admin)).send({ theme: 'dark' });
   const compiled = await import('../dist/app.js');
   const fresh = compiled.createApp({ uploadDirectory: uploads }).listen(0, '127.0.0.1');
   servers.push(fresh); await once(fresh, 'listening');
@@ -694,4 +709,203 @@ test('Email HTML: historical paid text-only deliveries remain readable without g
   assert.equal((await post(admin, `/api/dev/email-outbox/retry/${order.id}`)).status, 200);
   assert.equal((await readOrder(order.id)).emailDelivery.body, legacy);
   assert.equal((await readOrder(order.id)).emailDelivery.attempts, 1);
+});
+
+test('Email themes API: fictional previews default to the active setting; admin overrides never write or send', async () => {
+  const counts = [await prisma.order.count(), await prisma.emailDelivery.count(), await prisma.supplierContact.count()];
+  const saved = (await admin.get('/api/appearance')).body.theme;
+  const preview = await admin.get('/api/admin/email-preview?type=purchase-confirmation');
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.theme, saved);
+  assert.equal(preview.headers['cache-control'], 'no-store');
+  for (const theme of themeIds) {
+    for (const type of emailPreviewTypes) {
+      const result = await admin.get('/api/admin/email-preview').query({ theme, type });
+      assert.equal(result.status, 200);
+      const expected = renderFictionalEmail(type, theme);
+      assert.equal(result.body.delivery.html, expected.html);
+      assert.equal(result.body.delivery.body, expected.text);
+      assert.equal(result.body.delivery.document, undefined);
+      assert.equal(bodyContainsContact(result.body), false);
+    }
+  }
+  for (const client of [request(server), request.agent(server)]) {
+    assert.equal((await client.get('/api/admin/email-preview?type=supplier-delivery&theme=dark&role=ADMIN')).status, 403);
+    assert.equal((await client.get('/api/dev/email-outbox?theme=dark')).status, 403);
+  }
+  for (const query of [{}, { type: 'unknown' }, { type: 'supplier-delivery', theme: 'unknown' }, { type: 'supplier-delivery', theme: ['classic', 'dark'] }, { type: 'supplier-delivery', orderId: 'guessed' }]) {
+    assert.equal((await admin.get('/api/admin/email-preview').query(query)).status, 400);
+  }
+  assert.equal((await admin.get('/api/dev/email-outbox?theme=unknown')).status, 400);
+  assert.equal((await admin.get('/api/appearance')).body.theme, saved);
+  assert.deepEqual([await prisma.order.count(), await prisma.emailDelivery.count(), await prisma.supplierContact.count()], counts);
+});
+
+test('Email themes workflow: generation uses the persisted theme and preview changes preserve delivered bodies and ownership', async () => {
+  const saved = (await admin.get('/api/appearance')).body.theme;
+  try {
+    for (const theme of themeIds) {
+      await admin.put('/api/admin/appearance').set(await csrfHeaders(admin)).send({ theme });
+      const buyer = request.agent(server), stranger = request.agent(server);
+      const order = await newOrder(buyer);
+      // A client theme parameter must never override the generation setting.
+      assert.equal((await post(buyer, `/api/dev/payments/${order.id}/simulate`, { theme: theme === 'dark' ? 'classic' : 'dark' })).status, 200);
+      const stored = await readOrder(order.id);
+      const snapshot = decodeEmailContent(stored.emailDelivery.body);
+      const { renderSupplierDeliveryEmail } = await import('../src/email-templates.ts');
+      const categories = await prisma.category.findMany({ where: { id: a.id }, include: { contacts: true } });
+      const expected = renderSupplierDeliveryEmail(stored, categories, { theme, appUrl: process.env.EMAIL_APP_URL });
+      assert.equal(snapshot.html, expected.html);
+      assert.equal((await buyer.get(`/api/orders/${order.id}/delivery`)).body.delivery.html, expected.html);
+      for (const previewTheme of themeIds) {
+        const outbox = await admin.get('/api/dev/email-outbox').query({ theme: previewTheme });
+        assert.equal(outbox.status, 200);
+        const item = outbox.body.items.find((entry) => entry.orderId === order.id);
+        assert.equal(item.html, renderSupplierDeliveryEmail(stored, categories, { theme: previewTheme, appUrl: process.env.EMAIL_APP_URL }).html);
+        assert.equal(item.body, snapshot.body);
+        assert.equal((await admin.get(`/api/orders/${order.id}/delivery`).query({ theme: previewTheme })).body.delivery.html, item.html);
+        assert.equal((await admin.get('/api/appearance')).body.theme, theme);
+      }
+      assert.equal((await buyer.get(`/api/orders/${order.id}/delivery?theme=unknown`)).body.delivery.html, expected.html);
+      assert.equal((await admin.get(`/api/orders/${order.id}/delivery?theme=unknown`)).status, 400);
+      assert.equal((await stranger.get(`/api/orders/${order.id}/delivery?theme=${theme}`)).status, 404);
+      const nextTheme = theme === 'dark' ? 'minimal' : 'dark';
+      await admin.put('/api/admin/appearance').set(await csrfHeaders(admin)).send({ theme: nextTheme });
+      assert.equal((await buyer.get(`/api/orders/${order.id}/delivery`)).body.delivery.html, renderSupplierDeliveryEmail(stored, categories, { theme: nextTheme, appUrl: process.env.EMAIL_APP_URL }).html);
+      await post(admin, `/api/dev/email-outbox/retry/${order.id}`);
+      const afterPreview = await readOrder(order.id);
+      assert.equal(afterPreview.emailDelivery.body, stored.emailDelivery.body);
+      assert.equal(afterPreview.emailDelivery.attempts, 1);
+    }
+  } finally { await admin.put('/api/admin/appearance').set(await csrfHeaders(admin)).send({ theme: saved }); }
+});
+
+test('Remote hardening: localhost rejects forwarded hosts, DNS rebinding and foreign browser origins', async () => {
+  const running = await start();
+  for (const headers of [
+    { Host: 'attacker.example.test' }, { Host: 'localhost.attacker.example.test' },
+    { Origin: 'http://localhost:9999' }, { Origin: 'https://attacker.example.test' },
+    { 'X-Forwarded-Host': 'shop.example.test' }, { 'X-Forwarded-For': '127.0.0.1' },
+    { 'CF-Connecting-IP': '127.0.0.1' }, { 'Sec-Fetch-Site': 'cross-site' },
+  ]) {
+    const denied = await request(running).get('/api/csrf').set(headers);
+    assert.equal(denied.status, 403, JSON.stringify(headers));
+    assert.equal(denied.headers['set-cookie'], undefined);
+  }
+  assert.equal((await request(running).get('/api/health').set('Origin', 'http://127.0.0.1:5173')).status, 200);
+  assert.equal((await request(running).get('/api/categories/' + 'x'.repeat(2100))).status, 414);
+});
+
+test('Remote hardening: CSRF is session-bound, role changes rotate sessions, and cookie clearing still revokes guests', async () => {
+  const running = await start(), actor = request.agent(running), other = request.agent(running);
+  await actor.get('/api/auth/me');
+  const parallelTokens = await Promise.all([actor.get('/api/csrf'), actor.get('/api/csrf')]);
+  assert.equal(parallelTokens[0].body.csrfToken, parallelTokens[1].body.csrfToken);
+  const csrf = await actor.get('/api/csrf');
+  const initialSession = (await actor.get('/api/auth/me')).request.cookies.split('; ').find((cookie) => cookie.startsWith('market_session='));
+  assert.match(initialSession, /^market_session=/);
+  assert.equal(csrf.headers['cache-control'], 'no-store');
+  assert.equal((await actor.post('/api/dev/session').send({ role: 'ADMIN' })).status, 403);
+  const foreignCsrf = await csrfHeaders(other);
+  assert.equal((await actor.post('/api/dev/session').set(foreignCsrf).send({ role: 'ADMIN' })).status, 403);
+  assert.equal((await actor.post('/api/dev/session').set('X-CSRF-Token', csrf.body.csrfToken).set('Origin', 'http://localhost:9999').send({ role: 'ADMIN' })).status, 403);
+  assert.equal((await actor.get('/api/auth/me')).body.role, 'GUEST');
+  const switched = await actor.post('/api/dev/session').set('X-CSRF-Token', csrf.body.csrfToken).send({ role: 'ADMIN' });
+  assert.equal(switched.status, 200);
+  const elevatedSession = switched.headers['set-cookie'].find((cookie) => cookie.startsWith('market_session=')).split(';')[0];
+  assert.notEqual(initialSession, elevatedSession);
+  assert.equal((await request(running).get('/api/admin/orders').set('Cookie', initialSession)).status, 403);
+  const fresh = await actor.get('/api/csrf');
+  assert.notEqual(fresh.body.csrfToken, csrf.body.csrfToken);
+  assert.equal((await actor.put('/api/admin/appearance').set('X-CSRF-Token', csrf.body.csrfToken).send({ theme: 'classic' })).status, 403);
+  assert.equal((await actor.get('/api/admin/orders')).status, 200);
+  assert.equal((await post(actor, '/api/dev/session/clear')).status, 200);
+  assert.equal((await actor.get('/api/admin/orders')).status, 403);
+});
+
+test('Remote hardening: request limits and headers reject oversized or unsupported input without leaking errors', async () => {
+  const running = await start(), actor = request.agent(running);
+  await post(actor, '/api/dev/session', { role: 'ADMIN' });
+  const count = await prisma.order.count();
+  assert.equal((await post(actor, '/api/orders', { customerEmail: 'fixture@example.test', items: Array.from({ length: 101 }, () => ({ categoryId: a.id })) })).status, 400);
+  assert.equal((await post(actor, '/api/orders', { customerEmail: 'fixture@example.test', items: [{ categoryId: 'x'.repeat(129) }] })).status, 400);
+  const tooLarge = await post(actor, '/api/orders', { oversized: 'x'.repeat(70 * 1024) });
+  assert.equal(tooLarge.status, 413);
+  assert.doesNotMatch(JSON.stringify(tooLarge.body), /stack|node_modules|SyntaxError|Prisma|oversized/);
+  assert.equal(tooLarge.headers['x-powered-by'], undefined);
+  assert.equal(tooLarge.headers['x-content-type-options'], 'nosniff');
+  assert.match(tooLarge.headers['content-security-policy'], /frame-ancestors 'none'/);
+  assert.equal((await actor.post('/api/dev/session').set(await csrfHeaders(actor)).type('form').send({ role: 'ADMIN' })).status, 415);
+  const files = (await readdir(uploads)).length;
+  assert.equal((await actor.post(`/api/admin/categories/${a.id}/image`).set(await csrfHeaders(actor)).field('unexpected', 'field')).status, 400);
+  assert.equal((await readdir(uploads)).length, files);
+  assert.equal(await prisma.order.count(), count);
+  const limiterServer = await start();
+  const limiterClient = request.agent(limiterServer);
+  for (let index = 0; index < 30; index++) assert.equal((await limiterClient.post('/api/dev/session').send({ role: 'ADMIN' })).status, 403);
+  const limited = await limiterClient.post('/api/dev/session').send({ role: 'ADMIN' });
+  assert.equal(limited.status, 429); assert.ok(Number(limited.headers['retry-after']) > 0);
+});
+
+test('Remote hardening: remote profile serves the built UI, always denies mock ADMIN, and preserves secure guest checkout', async () => {
+  const frontendDirectory = path.join(temp, 'remote-frontend');
+  await mkdir(frontendDirectory);
+  await writeFile(path.join(frontendDirectory, 'index.html'), '<!doctype html><html><body>Fictional remote UI fixture</body></html>');
+  const previous = { REMOTE_TESTING: process.env.REMOTE_TESTING, REMOTE_ORIGIN: process.env.REMOTE_ORIGIN };
+  process.env.REMOTE_TESTING = 'true'; process.env.REMOTE_ORIGIN = 'https://shop-test.example.test';
+  let running;
+  try {
+    assert.throws(() => createApp({ frontendDirectory: path.join(temp, 'missing-build') }), /Build the local frontend/);
+    running = createApp({ uploadDirectory: uploads, frontendDirectory }).listen(0, '127.0.0.1');
+    servers.push(running); await once(running, 'listening');
+  } finally {
+    for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+  }
+  const client = () => {
+    const cookies = new Map();
+    const call = async (method, url, body, headers = {}) => {
+      let token;
+      if (method !== 'get') token = (await call('get', '/api/csrf')).body.csrfToken;
+      const operation = request(running)[method](url).set({ Host: 'shop-test.example.test', 'X-Forwarded-Proto': 'https', Origin: 'https://shop-test.example.test', ...headers });
+      if (cookies.size) operation.set('Cookie', [...cookies.values()].join('; '));
+      if (token) operation.set('X-CSRF-Token', token);
+      const result = await (body ? operation.send(body) : operation);
+      for (const cookie of result.headers['set-cookie'] ?? []) { const pair = cookie.split(';')[0]; cookies.set(pair.split('=')[0], pair); }
+      return result;
+    };
+    return call;
+  };
+  const guest = client(), other = client();
+  const identity = await guest('get', '/api/auth/me');
+  assert.equal(identity.status, 200); assert.equal(identity.body.role, 'GUEST');
+  assert.equal(identity.body.mockAccountSwitchingEnabled, false);
+  for (const cookie of identity.headers['set-cookie']) { assert.match(cookie, /; Secure/); assert.match(cookie, /; HttpOnly/); assert.match(cookie, /; SameSite=Lax/); }
+  assert.equal((await guest('post', '/api/dev/session', { role: 'ADMIN' }, { 'Cf-Access-Authenticated-User-Email': 'admin@example.test' })).status, 403);
+  for (const route of ['/api/admin/orders', '/api/admin/categories', '/api/dev/email-outbox', '/api/admin/email-preview?type=supplier-delivery']) assert.equal((await guest('get', route)).status, 403);
+  assert.equal((await guest('get', '/api/health', undefined, { 'X-Forwarded-Proto': 'http' })).status, 403);
+  assert.equal((await guest('get', '/api/health', undefined, { Host: 'localhost:3001' })).status, 403);
+  assert.equal((await guest('get', '/api/health', undefined, { Origin: 'https://attacker.example.test' })).status, 403);
+  const ui = await guest('get', '/categories/fixture');
+  assert.equal(ui.status, 200); assert.match(ui.text, /Fictional remote UI fixture/);
+  assert.match(ui.headers['content-security-policy'], /script-src 'self'/);
+  assert.doesNotMatch(ui.headers['content-security-policy'], /script-src[^;]*unsafe-inline/);
+  assert.equal(ui.headers['strict-transport-security'], 'max-age=86400');
+  assert.equal((await guest('get', '/api/missing')).status, 404);
+  const created = await guest('post', '/api/orders', { customerEmail: 'remote-fixture@example.test', items: [{ categoryId: a.id }] });
+  assert.equal(created.status, 201);
+  const id = created.body.order.id;
+  assert.equal((await guest('get', `/api/orders/${id}/delivery`)).status, 409);
+  assert.equal((await other('get', `/api/orders/${id}`)).status, 404);
+  assert.equal((await guest('post', `/api/dev/payments/${id}/simulate`, {})).status, 200);
+  assert.equal((await guest('get', `/api/orders/${id}/delivery`)).status, 200);
+  assert.equal((await other('get', `/api/orders/${id}/delivery`)).status, 404);
+});
+
+test('Remote hardening: contact mutations honor the category in the request URL', async () => {
+  const running = await start(), manager = request.agent(running);
+  await post(manager, '/api/dev/session', { role: 'ADMIN' });
+  const contact = await prisma.supplierContact.findFirstOrThrow({ where: { categoryId: a.id } });
+  assert.equal((await manager.put(`/api/admin/categories/${b.id}/contacts/${contact.id}`).set(await csrfHeaders(manager)).send({ supplierName: 'Wrong parent fixture', email: 'wrong-parent@example.test' })).status, 404);
+  assert.equal((await manager.delete(`/api/admin/categories/${b.id}/contacts/${contact.id}`).set(await csrfHeaders(manager))).status, 404);
+  assert.deepEqual(await prisma.supplierContact.findUnique({ where: { id: contact.id } }), contact);
 });

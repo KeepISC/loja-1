@@ -3,15 +3,21 @@ import cors from 'cors';
 import session from 'express-session';
 import multer from 'multer';
 import fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { Prisma, PrismaClient } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
+import { Prisma as DatabasePrisma, PrismaClient } from './database.js';
+import { DatabaseSessionStore } from './session-store.js';
+import { retryTransaction } from './transaction-retry.js';
 import { z } from 'zod';
-import { publicDir, uploadDir, requireDevelopment } from './config.js';
+import { projectRoot, publicDir, uploadDir, requireDevelopment } from './config.js';
+import { boundary, cookieOptions, createRateLimit, csrfProtection, csrfToken, isLoopback, securityConfig, securityHeaders, storefrontCsp, unsafeMethod } from './security.js';
 import { ensureGuest, resolveGuest, revokeGuest } from './guest-access.js';
 import { createAppearanceRepository, themeIds } from './appearance.js';
 import { renderSupplierDeliveryEmail } from './email-templates.js';
-import { decodeEmailContent, encodeEmailContent } from './email-content.js';
+import { encodeEmailContent, previewEmailContent } from './email-content.js';
+import { emailPreviewTypes, renderFictionalEmail } from './email-preview.js';
 
 declare module 'express-session' {
   interface SessionData {
@@ -23,7 +29,7 @@ declare module 'express-session' {
 const prisma = new PrismaClient();
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 2 * 1024 * 1024, files: 1 },
+  limits: { fileSize: 2 * 1024 * 1024, files: 1, fields: 0, parts: 2 },
   fileFilter: (_req, file, cb) => {
     const allowed = ['image/png', 'image/jpeg', 'image/webp'];
     if (!allowed.includes(file.mimetype)) {
@@ -71,9 +77,16 @@ function customerOrder(order: OrderWithData) {
   };
 }
 
-export function createApp(options: { uploadDirectory?: string } = {}) {
+export function createApp(options: { uploadDirectory?: string; frontendDirectory?: string } = {}) {
   requireDevelopment();
+  const security = securityConfig();
+  const frontendDirectory = options.frontendDirectory ?? path.join(projectRoot, 'frontend', 'dist');
+  if (security.remote && !existsSync(path.join(frontendDirectory, 'index.html'))) throw new Error('Build the local frontend before starting remote tests.');
   const app = express();
+  app.disable('x-powered-by');
+  app.locals.remoteTesting = security.remote;
+  app.locals.csrfSecret = security.secret;
+  if (security.remote) app.set('trust proxy', isLoopback);
   const appearance = createAppearanceRepository(prisma);
   const uploads = options.uploadDirectory ?? uploadDir;
 
@@ -81,9 +94,15 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
     if (process.env.NODE_ENV !== 'development') return res.status(503).json({ error: 'Development providers are disabled.' });
     next();
   });
-  app.use(cors({ origin: ['http://localhost:5173', 'http://127.0.0.1:5173'], credentials: true }));
-  app.use(express.json({ limit: '5mb' }));
-  app.use(express.urlencoded({ extended: true }));
+  app.use(securityHeaders);
+  app.use(boundary(security));
+  app.use(cors({ origin: [...security.origins], credentials: true }));
+  const requestLimit = createRateLimit(security.remote ? 300 : 1000);
+  const writeLimit = createRateLimit(security.remote ? 60 : 300);
+  const sessionLimit = createRateLimit(30);
+  app.use('/api', requestLimit);
+  app.use('/api', (req, res, next) => unsafeMethod(req.method) ? writeLimit(req, res, next) : next());
+  app.use('/api/dev/session', sessionLimit);
   // Never serve arbitrary files from the upload directory, including legacy SVG/HTML uploads.
   app.get('/uploads/:filename', asyncRoute(async (req, res) => {
     const filename = String(req.params.filename);
@@ -102,18 +121,26 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
 
   app.use(
     session({
-      secret: process.env.SESSION_SECRET || randomUUID(),
+      store: new DatabaseSessionStore(prisma),
+      secret: security.secret,
       resave: false,
       saveUninitialized: false,
       cookie: {
-        httpOnly: true,
-        secure: false,
-        sameSite: 'lax',
-        maxAge: 7 * 24 * 60 * 60 * 1000,
+        ...cookieOptions(security.remote),
+        maxAge: (security.remote ? 2 * 60 * 60 : 7 * 24 * 60 * 60) * 1000,
       },
       name: 'market_session',
     }),
   );
+
+  // Remote testing is guest-only even if a localhost ADMIN session is replayed.
+  app.use((req, _res, next) => {
+    if (security.remote && req.session.userRole === 'ADMIN') req.session.userRole = 'GUEST';
+    next();
+  });
+  app.get('/api/csrf', csrfToken);
+  app.use(csrfProtection);
+  app.use(express.json({ limit: '64kb' }));
 
   app.use(asyncRoute(async (req, _res, next) => {
     req.guestCustomerId = await resolveGuest(req, prisma);
@@ -137,7 +164,7 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
       displayName: role === 'ADMIN' ? 'Mock Administrator' : 'Mock Guest',
       email: role === 'ADMIN' ? 'admin@local.test' : 'guest@local.test',
       mode: 'development',
-      mockAccountSwitchingEnabled: true,
+      mockAccountSwitchingEnabled: !security.remote,
     };
   };
 
@@ -156,13 +183,13 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
     name: z.string().min(2).max(80),
     slug: z.string().min(2).max(80),
     description: z.string().min(10).max(2000),
-    priceCents: z.number().int().positive(),
+    priceCents: z.number().int().positive().max(1000000),
     active: z.boolean().optional().default(true),
   });
 
   const contactSchema = z.object({
     supplierName: z.string().min(2).max(80),
-    email: z.string().email(),
+    email: z.string().email().max(254),
     telephone: z.string().max(80).optional().or(z.literal('')),
     whatsapp: z.string().max(80).optional().or(z.literal('')),
     website: z.string().max(200).optional().or(z.literal('')),
@@ -190,8 +217,8 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
 
   class DummyPaymentProvider {
     async confirmPayment(orderId: string) {
-      return prisma.$transaction(async (tx) => {
-        // Take the SQLite write lock before reading: concurrent callbacks cannot both transition it.
+      return retryTransaction(() => prisma.$transaction(async (tx) => {
+        // Claim the payment row before reading; both SQLite and InnoDB serialize competing writes.
         await tx.payment.updateMany({
           where: { orderId, status: 'PENDING', provider: 'DUMMY' },
           data: { status: 'PAID', confirmedAt: new Date() },
@@ -206,14 +233,17 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
         });
         if (!updated.count) throw new HttpError(409, 'Order cannot be confirmed in its current state.');
         return payment;
-      }, { maxWait: 10000, timeout: 10000 });
+      }, { maxWait: 10000, timeout: 10000 }));
     }
   }
 
   class DummyEmailProvider {
     async sendOrderDeliveryEmail(orderId: string) {
       try {
-        return await prisma.$transaction(async (tx) => {
+        // Read before the write transaction: a settings query on another connection
+        // must never contend with our SQLite delivery claim. Clients cannot override it.
+        const theme = await appearance.read();
+        return await retryTransaction(() => prisma.$transaction(async (tx) => {
           // The existing delivery row is the local dummy outbox. Claim and send are one commit,
           // with no filesystem/network side effect that could succeed before its status is saved.
           const claim = await tx.emailDelivery.updateMany({
@@ -238,7 +268,7 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
             where: { id: { in: order.items.map((item) => item.categoryId) } },
             include: { contacts: true },
           });
-          const message = renderSupplierDeliveryEmail(order, categories, { appUrl: process.env.EMAIL_APP_URL });
+          const message = renderSupplierDeliveryEmail(order, categories, { appUrl: process.env.EMAIL_APP_URL, theme });
           return tx.emailDelivery.update({
             where: { orderId },
             data: {
@@ -247,7 +277,7 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
               body: encodeEmailContent(message), attempts: { increment: 1 }, lastError: null,
             },
           });
-        }, { maxWait: 10000, timeout: 10000 });
+        }, { maxWait: 10000, timeout: 10000 }));
       } catch (error) {
         if (!(error instanceof HttpError)) {
           // A database outage may also prevent recording failure; the original error still reaches middleware.
@@ -278,17 +308,25 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
     res.set('Cache-Control', 'no-store').json({ theme: await appearance.write(parsed.data.theme) });
   }));
 
+  app.get('/api/admin/email-preview', requireRole('ADMIN'), asyncRoute(async (req, res) => {
+    const parsed = z.object({ type: z.enum(emailPreviewTypes), theme: z.enum(themeIds).optional() }).strict().safeParse(req.query);
+    if (!parsed.success) throw new HttpError(400, 'Invalid email preview.');
+    const theme = parsed.data.theme ?? await appearance.read();
+    const { subject, text, html } = renderFictionalEmail(parsed.data.type, theme);
+    res.set('Cache-Control', 'no-store').json({ theme, delivery: { subject, body: text, html, recipient: 'comprador@example.test' } });
+  }));
+
   app.get('/api/auth/me', asyncRoute(async (req, res) => {
     await ensureGuest(req, res, prisma);
     res.json({
       ...currentUser(req),
       mode: process.env.NODE_ENV || 'development',
-      mockAccountSwitchingEnabled: isDevelopment(),
+      mockAccountSwitchingEnabled: isDevelopment() && !security.remote,
     });
   }));
 
-  app.post('/api/dev/session', (req, res) => {
-    if (!isDevelopment()) {
+  app.post('/api/dev/session', asyncRoute(async (req, res) => {
+    if (!isDevelopment() || security.remote) {
       return res.status(403).json({ error: 'Mock account switcher is only available in development mode.' });
     }
 
@@ -297,14 +335,17 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
       return res.status(400).json({ error: 'Invalid role.' });
     }
 
+    const customerId = req.guestCustomerId ?? req.session.customerId;
+    await new Promise<void>((resolve, reject) => req.session.regenerate((error) => error ? reject(error) : resolve()));
+    req.session.customerId = customerId;
     req.session.userRole = body.data.role;
     return res.json({ ok: true, user: currentUser(req) });
-  });
+  }));
 
   app.post('/api/dev/session/clear', asyncRoute(async (req, res) => {
     await revokeGuest(req, res, prisma);
     await new Promise<void>((resolve, reject) => req.session.destroy((error) => error ? reject(error) : resolve()));
-    res.clearCookie('market_session');
+    res.clearCookie('market_session', cookieOptions(security.remote));
     res.json({ ok: true });
   }));
 
@@ -340,9 +381,9 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
     }
 
     const parsed = z.object({
-      customerEmail: z.string().email(),
+      customerEmail: z.string().email().max(254),
       checkoutKey: z.string().uuid().optional(),
-      items: z.array(z.object({ categoryId: z.string() })).min(1),
+      items: z.array(z.object({ categoryId: z.string().min(1).max(128) })).min(1).max(100),
     }).safeParse(req.body);
 
     if (!parsed.success) {
@@ -409,7 +450,7 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
         include: { items: true, payment: true, emailDelivery: true },
       });
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      if (error instanceof DatabasePrisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         const existing = await previousCheckout();
         if (existing) return res.json({ order: customerOrder(existing) });
       }
@@ -437,7 +478,14 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
       throw new HttpError(409, 'Delivery is only available after confirmed payment and successful delivery.');
     }
     const { recipient, subject, body } = order.emailDelivery;
-    return res.json({ delivery: { recipient, subject, ...decodeEmailContent(body) } });
+    let theme = await appearance.read();
+    if (req.session.userRole === 'ADMIN' && req.query.theme !== undefined) {
+      const parsed = z.enum(themeIds).safeParse(req.query.theme);
+      if (!parsed.success) throw new HttpError(400, 'Invalid email preview theme.');
+      theme = parsed.data;
+    }
+    res.set('Cache-Control', 'no-store');
+    return res.json({ delivery: { recipient, subject, ...previewEmailContent(body, theme) } });
   }));
 
   app.get('/api/orders/:id', asyncRoute(async (req, res) => {
@@ -556,7 +604,7 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
   app.post('/api/admin/categories/:id/image', requireRole('ADMIN'), asyncRoute(async (req, res) => {
     const category = await prisma.category.findUnique({ where: { id: String(req.params.id) } });
     if (!category) throw new HttpError(404, 'Category not found.');
-    await new Promise<void>((resolve, reject) => upload.single('image')(req, res, (error) => error ? reject(new HttpError(400, error.message)) : resolve()));
+    await new Promise<void>((resolve, reject) => upload.single('image')(req, res, (error) => error ? reject(new HttpError(400, 'Invalid image upload.')) : resolve()));
     const file = req.file;
     if (!file) throw new HttpError(400, 'No image was uploaded.');
     const type = imageType(file.buffer);
@@ -620,7 +668,7 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
     }
 
     const item = await prisma.supplierContact.update({
-      where: { id: String(req.params.contactId) },
+      where: { id: String(req.params.contactId), categoryId: String(req.params.categoryId) },
       data: {
         supplierName: parsed.data.supplierName,
         email: parsed.data.email,
@@ -635,7 +683,7 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
   }));
 
   app.delete('/api/admin/categories/:categoryId/contacts/:contactId', requireRole('ADMIN'), asyncRoute(async (req, res) => {
-    await prisma.supplierContact.delete({ where: { id: String(req.params.contactId) } });
+    await prisma.supplierContact.delete({ where: { id: String(req.params.contactId), categoryId: String(req.params.categoryId) } });
     return res.json({ ok: true });
   }));
 
@@ -647,7 +695,10 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
     res.json({ items: orders.map(customerOrder) });
   }));
 
-  app.get('/api/dev/email-outbox', requireRole('ADMIN'), asyncRoute(async (_req, res) => {
+  app.get('/api/dev/email-outbox', requireRole('ADMIN'), asyncRoute(async (req, res) => {
+    const parsed = z.object({ theme: z.enum(themeIds).optional() }).strict().safeParse(req.query);
+    if (!parsed.success) throw new HttpError(400, 'Invalid email preview theme.');
+    const theme = parsed.data.theme ?? await appearance.read();
     const outbox = await prisma.emailDelivery.findMany({
       orderBy: { createdAt: 'desc' }, include: { order: { include: { payment: true } } },
     });
@@ -655,7 +706,7 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
     return res.json({ items: outbox.map((delivery) => ({
       id: delivery.id, orderId: delivery.orderId, status: delivery.status, recipient: delivery.recipient,
       subject: delivery.subject, createdAt: delivery.createdAt, attempts: delivery.attempts, lastError: delivery.lastError,
-      ...(delivery.status === 'SENT' && delivery.order.status === 'PAID' && delivery.order.payment?.status === 'PAID' ? decodeEmailContent(delivery.body) : { body: '' }),
+      ...(delivery.status === 'SENT' && delivery.order.status === 'PAID' && delivery.order.payment?.status === 'PAID' ? previewEmailContent(delivery.body, theme) : { body: '' }),
       order: { orderNumber: delivery.order.orderNumber },
     })) });
   }));
@@ -665,10 +716,21 @@ export function createApp(options: { uploadDirectory?: string } = {}) {
     return res.json({ delivery: { status: delivery.status }, email: { status: delivery.status } });
   }));
 
+  app.use('/api', (_req, res) => res.status(404).json({ error: 'Endpoint not found.' }));
+  if (security.remote) {
+    app.use((req, res, next) => {
+      res.set('Content-Security-Policy', storefrontCsp);
+      res.set('Strict-Transport-Security', 'max-age=86400');
+      next();
+    });
+    app.use(express.static(frontendDirectory, { index: false, dotfiles: 'deny' }));
+    app.get('*', (_req, res) => res.set('Cache-Control', 'no-store').sendFile(path.join(frontendDirectory, 'index.html')));
+  }
+
   const errorHandler: ErrorRequestHandler = (error, _req, res, next) => {
     if (res.headersSent) return next(error);
     if (error instanceof HttpError) return res.status(error.status).json({ error: error.message });
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error instanceof DatabasePrisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2002') return res.status(409).json({ error: 'A record with that identifier already exists.' });
       if (error.code === 'P2025') return res.status(404).json({ error: 'Record not found.' });
       if (error.code === 'P2003') return res.status(400).json({ error: 'Invalid related record.' });

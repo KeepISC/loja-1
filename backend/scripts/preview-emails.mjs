@@ -1,32 +1,38 @@
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { renderPurchaseConfirmationEmail, renderSupplierDeliveryEmail } from '../dist/email-templates.js';
+import { createAppearanceRepository, themeIds } from '../dist/appearance.js';
+import { emailPreviewTypes, renderFictionalEmail } from '../dist/email-preview.js';
 
-// Reserved example domains only. This preview never reads the database or sends an email.
-const order = {
-  id: 'demo-order', orderNumber: 'DEMO-2026-001', customerEmail: 'comprador@example.test',
-  status: 'PAID', payment: { status: 'PAID' }, totalCents: 2400,
-  items: [{ categoryId: 'demo-category', categoryName: 'Casa & Decoração', priceCents: 2400, quantity: 1 }],
-};
-const categories = [{
-  id: 'demo-category', name: 'Casa & Decoração', contacts: [{
-    supplierName: 'Atelier Exemplo — fornecedor fictício', email: 'fornecedor@example.test',
-    website: 'https://supplier.example', notes: 'Dados inteiramente fictícios para pré-visualização.\nNão utilizar para compras reais.',
-  }],
-}];
-const options = { appUrl: 'https://marketplace.example' };
-const messages = {
-  'purchase-confirmation': renderPurchaseConfirmationEmail(order, options),
-  'supplier-delivery': renderSupplierDeliveryEmail(order, categories, options),
-  'payment-pending': renderPurchaseConfirmationEmail({ ...order, status: 'PENDING', payment: { status: 'PENDING' } }, options),
-};
+const args = process.argv.slice(2);
+if (args.length && (args.length !== 2 || args[0] !== '--theme' || ![...themeIds, 'all'].includes(args[1]))) {
+  throw new Error('Usage: npm run preview:emails --workspace backend -- [--theme classic|minimal|marketplace|dark|all]');
+}
+let selected = args[1];
+if (!selected) {
+  // Default to the existing store-wide setting. Read settings only, never customers,
+  // orders or contacts. Explicit --theme / --theme all is entirely fixture-only.
+  const { requireDevelopment } = await import('../dist/config.js');
+  requireDevelopment();
+  const { PrismaClient } = await import('../dist/database.js');
+  const prisma = new PrismaClient();
+  try { selected = await createAppearanceRepository(prisma).read(); }
+  finally { await prisma.$disconnect(); }
+}
+const selectedThemes = selected === 'all' ? themeIds : [selected];
 const directory = await mkdtemp(path.join(tmpdir(), 'supplier-market-email-preview-'));
-for (const [name, message] of Object.entries(messages)) {
-  for (const [extension, body] of [['html', message.html], ['txt', message.text]]) {
-    const file = path.join(directory, `${name}.${extension}`);
-    await writeFile(file, body, 'utf8');
-    console.log(file);
+const links = [];
+for (const theme of selectedThemes) {
+  for (const type of emailPreviewTypes) {
+    const message = renderFictionalEmail(type, theme);
+    for (const [extension, body] of [['html', message.html], ['txt', message.text]]) {
+      const name = `${theme}-${type}.${extension}`;
+      await writeFile(path.join(directory, name), body, 'utf8');
+      links.push(`<li><a href="${name}">${theme} / ${type} (${extension})</a></li>`);
+    }
   }
 }
-console.log('Open the HTML files in a browser; the TXT files are their plain-text alternatives. All data is fictional.');
+const index = path.join(directory, 'index.html');
+await writeFile(index, `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Email theme previews</title></head><body><h1>Supplier Market email previews</h1><p>Fictional data only. No email was sent. Preview selection does not change the storefront.</p><ul>${links.join('')}</ul></body></html>`, 'utf8');
+console.log(index);
+console.log(`${selectedThemes.length * emailPreviewTypes.length} fictional email previews and plain-text alternatives. No email was sent.`);

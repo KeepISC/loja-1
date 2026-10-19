@@ -3,6 +3,8 @@ import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { apiFetch } from './api';
 import { loadOwnedOrder, orderOutcome, type Order } from './orders';
 import type { AuthState } from './stores';
+import { useActiveTheme } from './Appearance';
+import { isDemo } from './deployment';
 
 type Category = { id: string; name: string; slug: string; description: string; priceCents: number; active: boolean };
 type ContactDraft = { supplierName: string; email: string; telephone: string; whatsapp: string; website: string; notes: string };
@@ -181,6 +183,7 @@ export function EmailPreview({ delivery }: { delivery: Delivery }) {
 }
 
 export function OrderDetailsPage({ auth }: { auth: AuthState | null }) {
+  const theme = useActiveTheme(auth, isDemo);
   const params = useParams(), location = useLocation();
   const [search] = useSearchParams();
   const stateId = (location.state as { order?: { id?: unknown } } | null)?.order?.id;
@@ -190,6 +193,8 @@ export function OrderDetailsPage({ auth }: { auth: AuthState | null }) {
   const [version, setVersion] = useState(0);
   const key = `${identity}|${version}`;
   const [email, setEmail] = useState<{ key: string; delivery: Delivery } | null>(null);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [emailVersion, setEmailVersion] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -201,13 +206,24 @@ export function OrderDetailsPage({ auth }: { auth: AuthState | null }) {
   }, [id, key]);
   const current = result?.key === key ? result : null;
   const order = current?.order;
+  const deliveryKey = `${key}|${theme}|${emailVersion}`;
+  useEffect(() => { setEmailOpen(false); }, [identity]);
+  useEffect(() => {
+    if (!emailOpen || !id || !order || orderOutcome(order) !== 'delivered' || isDemo) return;
+    let active = true;
+    const query = auth?.role === 'ADMIN' ? '?theme=' + theme : '';
+    apiFetch<{ delivery: Delivery }>(`/api/orders/${encodeURIComponent(id)}/delivery${query}`)
+      .then((response) => { if (active) setEmail({ key: deliveryKey, delivery: response.delivery }); })
+      .catch((error) => { if (active) setActionError(message(error)); });
+    return () => { active = false; };
+  }, [emailOpen, id, order, deliveryKey, auth?.role, theme]);
   const act = async (deliveryOnly: boolean) => {
     if (!id) return;
     setBusy(true); setActionError(null);
     try {
       if (deliveryOnly) {
-        const response = await apiFetch<{ delivery: Delivery }>(`/api/orders/${encodeURIComponent(id)}/delivery`);
-        setEmail({ key, delivery: response.delivery });
+        setEmailOpen(true);
+        setEmailVersion((previous) => previous + 1);
       } else {
         await apiFetch('/api/dev/payments/' + encodeURIComponent(id) + '/simulate', { method: 'POST' });
         setVersion((value) => value + 1);
@@ -219,15 +235,17 @@ export function OrderDetailsPage({ auth }: { auth: AuthState | null }) {
     {order && <><OrderSummary order={order} />
       {['payment-pending', 'delivery-pending'].includes(orderOutcome(order)) && <button className={button} disabled={busy} onClick={() => act(false)}>{orderOutcome(order) === 'payment-pending' ? 'Simular pagamento' : 'Repetir entrega'}</button>}
       {orderOutcome(order) === 'delivered' && <button className={secondary} disabled={busy} onClick={() => act(true)}>Ver email de entrega</button>}
-      {email?.key === key && orderOutcome(order) === 'delivered' && <EmailPreview delivery={email.delivery} />}
+      {emailOpen && email?.key === deliveryKey && orderOutcome(order) === 'delivered' && <EmailPreview delivery={email.delivery} />}
+      {emailOpen && email?.key !== deliveryKey && orderOutcome(order) === 'delivered' && !actionError && <p role="status">A preparar email…</p>}
     </>}
     <ErrorMessage text={actionError} /><Link className="inline-block text-brand-500 underline" to="/orders">Meus pedidos</Link>
   </Shell>;
 }
 
 export function EmailOutboxPage({ auth }: { auth: AuthState | null }) {
-  const allowed = auth?.role === 'ADMIN' && auth.mockAccountSwitchingEnabled === true;
-  const resource = useResource<{ items: OutboxItem[] }>(allowed ? '/api/dev/email-outbox' : null, auth?.role);
+  const theme = useActiveTheme(auth, false);
+  const allowed = !isDemo && auth?.role === 'ADMIN' && auth.mockAccountSwitchingEnabled === true;
+  const resource = useResource<{ items: OutboxItem[] }>(allowed ? '/api/dev/email-outbox?theme=' + theme : null, auth?.role);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   if (!allowed) return <Shell><p>Acesso restrito. Selecione ADMIN em modo de desenvolvimento.</p></Shell>;

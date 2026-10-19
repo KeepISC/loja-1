@@ -1,4 +1,7 @@
-export type EmailMessage = { subject: string; text: string; html: string };
+import { themeIds, type ThemeId } from './appearance.js';
+import { themedEmailLayout, type EmailDocument } from './email-designs.js';
+
+export type EmailMessage = { subject: string; text: string; html: string; document?: EmailDocument };
 export type EmailOrder = {
   id: string; orderNumber: string; customerEmail: string; totalCents: number; status: string;
   payment?: { status: string } | null;
@@ -6,7 +9,7 @@ export type EmailOrder = {
 };
 type EmailContact = { supplierName: string; email: string; telephone?: string | null; whatsapp?: string | null; website?: string | null; notes?: string | null };
 export type EmailCategory = { id: string; name: string; contacts: EmailContact[] };
-type Options = { appUrl?: string };
+type Options = { appUrl?: string; theme?: ThemeId };
 
 export const escapeEmailHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]!));
 const lines = (value: string) => escapeEmailHtml(value).replace(/\r?\n/g, '<br>');
@@ -32,6 +35,13 @@ function orderUrl(order: EmailOrder, options: Options) {
 
 function action(url?: string) {
   return url ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 12px;"><tr><td bgcolor="#254fb5" style="background-color:#254fb5;border-radius:6px;text-align:center;padding:14px 24px;"><a href="${escapeEmailHtml(url)}" style="font-family:Arial,Helvetica,sans-serif;color:#ffffff;font-size:16px;font-weight:bold;text-decoration:none;display:inline-block;">Ver pedido</a></td></tr></table><p style="font-size:13px;color:#526074;margin:8px 0 0;line-height:20px;">O acesso ao pedido continua a exigir a sessão autorizada.</p>` : '';
+}
+
+export function renderEmailDocument(document: EmailDocument, theme: ThemeId = 'classic') {
+  if (!themeIds.includes(theme)) throw new Error('Invalid email theme.');
+  // Validate even stored/preview URLs; no arbitrary link can enter a presentation.
+  const safe = { ...document, url: httpsUrl(document.url)?.href };
+  return theme === 'classic' ? layout(safe.title, safe.intro, safe.content, safe.url) : themedEmailLayout(theme, safe, escapeEmailHtml);
 }
 
 function layout(title: string, intro: string, content: string, url?: string) {
@@ -72,9 +82,11 @@ export function renderPurchaseConfirmationEmail(order: EmailOrder, options: Opti
   const intro = paid ? 'O seu pagamento foi confirmado. Aqui está o resumo da sua compra.' : 'O pagamento não está confirmado. Os contactos só ficam disponíveis após confirmação do pagamento.';
   const summary = receipt(order);
   const url = orderUrl(order, options);
+  const document = { title, intro, content: summary.html, url };
   return {
     subject: `${title} — ${subjectReference(order.orderNumber)}`,
-    html: layout(title, intro, summary.html, url),
+    html: renderEmailDocument(document, options.theme),
+    document,
     text: [title, intro, '', summary.text, url ? `\nVer pedido: ${url}` : '', '', 'Supplier Market — ambiente local de demonstração. Nenhuma mensagem externa foi enviada.'].filter(Boolean).join('\n'),
   };
 }
@@ -105,9 +117,11 @@ export function renderSupplierDeliveryEmail(order: EmailOrder, categories: Email
   const title = 'Os seus contactos estão prontos';
   const intro = 'Compra confirmada. Consulte abaixo os contactos das categorias que adquiriu.';
   const url = orderUrl(order, options);
+  const document = { title, intro, content: summary.html + '<h2 style="margin:28px 0 0;color:#182331;font-size:22px;line-height:30px;">Contactos dos fornecedores</h2>' + contactHtml, url };
   return {
     subject: `Entrega de contactos do pedido ${subjectReference(order.orderNumber)}`,
-    html: layout(title, intro, summary.html + '<h2 style="margin:28px 0 0;color:#182331;font-size:22px;line-height:30px;">Contactos dos fornecedores</h2>' + contactHtml, url),
+    html: renderEmailDocument(document, options.theme),
+    document,
     text: [title, intro, '', summary.text, '', 'Contactos dos fornecedores:', ...contactText, url ? `\nVer pedido: ${url}` : '', '', 'Supplier Market — ambiente local de demonstração. Nenhuma mensagem externa foi enviada.', 'Os contactos adquiridos são privados; não partilhe esta mensagem.'].join('\n'),
   };
 }

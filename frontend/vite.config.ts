@@ -11,6 +11,8 @@ export default defineConfig(({ mode }) => ({
   server: {
     port: 5173,
     host: '127.0.0.1',
+    strictPort: true,
+    headers: { 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'no-referrer' },
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:3001',

@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
 import type { PrismaClient } from '@prisma/client';
+import { cookieOptions } from './security.js';
 
 declare module 'express-serve-static-core' {
   interface Request { guestCustomerId?: string }
@@ -42,7 +43,7 @@ export async function ensureGuest(req: Request, res: Response, prisma: PrismaCli
   if (!id) id = (await prisma.user.create({ data: { email, role: 'GUEST', displayName: 'Mock Guest' } })).id;
   req.guestCustomerId = id;
   req.session.customerId = id; // Compatibility/cache only; protected routes use the validated capability above.
-  res.cookie(guestCookieName, credential, { httpOnly: true, sameSite: 'lax', secure: false, path: '/', maxAge: lifetime });
+  res.cookie(guestCookieName, credential, { ...cookieOptions(req.app.locals.remoteTesting === true), maxAge: lifetime });
   return id;
 }
 
@@ -50,5 +51,5 @@ export async function revokeGuest(req: Request, res: Response, prisma: PrismaCli
   if (req.guestCustomerId) {
     await prisma.user.updateMany({ where: { id: req.guestCustomerId, role: 'GUEST' }, data: { email: `revoked-${randomUUID()}@local.test` } });
   }
-  res.clearCookie(guestCookieName, { httpOnly: true, sameSite: 'lax', secure: false, path: '/' });
+  res.clearCookie(guestCookieName, cookieOptions(req.app.locals.remoteTesting === true));
 }

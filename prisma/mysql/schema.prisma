@@ -1,0 +1,114 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../node_modules/.prisma/mysql-client"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(uuid()) @db.VarChar(128)
+  role        String   @db.VarChar(20)
+  displayName String   @db.VarChar(255)
+  email       String   @unique @db.VarChar(254)
+  createdAt   DateTime @default(now())
+  orders      Order[]
+}
+
+model SiteSetting {
+  key   String @id @db.VarChar(191)
+  value String @db.VarChar(255)
+}
+
+model Session {
+  idHash    String   @id @db.Char(64)
+  data      String   @db.LongText
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
+
+model Category {
+  id          String            @id @default(uuid()) @db.VarChar(128)
+  name        String            @db.VarChar(80)
+  slug        String            @unique @db.VarChar(80)
+  description String            @db.Text
+  priceCents  Int
+  imageUrl    String            @db.Text
+  active      Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  contacts    SupplierContact[]
+  items       OrderItem[]
+}
+
+model SupplierContact {
+  id           String   @id @default(uuid()) @db.VarChar(128)
+  categoryId   String   @db.VarChar(128)
+  supplierName String   @db.VarChar(80)
+  email        String   @db.VarChar(254)
+  telephone    String?  @db.VarChar(80)
+  whatsapp     String?  @db.VarChar(80)
+  website      String?  @db.VarChar(200)
+  notes        String?  @db.Text
+  category     Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([categoryId])
+}
+
+model Order {
+  id            String         @id @default(uuid()) @db.VarChar(128)
+  orderNumber   String         @unique @db.VarChar(80)
+  userId        String?        @db.VarChar(128)
+  customerEmail String         @db.VarChar(254)
+  status        String         @default("PENDING") @db.VarChar(20)
+  totalCents    Int
+  createdAt     DateTime       @default(now())
+  user          User?          @relation(fields: [userId], references: [id])
+  items         OrderItem[]
+  payment       Payment?
+  emailDelivery EmailDelivery?
+
+  @@index([userId, createdAt])
+}
+
+model OrderItem {
+  id           String   @id @default(uuid()) @db.VarChar(128)
+  orderId      String   @db.VarChar(128)
+  categoryId   String   @db.VarChar(128)
+  categoryName String   @db.VarChar(80)
+  priceCents   Int
+  quantity     Int      @default(1)
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  category     Category @relation(fields: [categoryId], references: [id])
+
+  @@index([orderId])
+  @@index([categoryId])
+}
+
+model Payment {
+  id          String    @id @default(uuid()) @db.VarChar(128)
+  orderId     String    @unique @db.VarChar(128)
+  status      String    @default("PENDING") @db.VarChar(20)
+  provider    String    @default("DUMMY") @db.VarChar(20)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  confirmedAt DateTime?
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model EmailDelivery {
+  id        String   @id @default(uuid()) @db.VarChar(128)
+  orderId   String   @unique @db.VarChar(128)
+  status    String   @default("NOT_SENT") @db.VarChar(20)
+  recipient String   @db.VarChar(254)
+  subject   String   @db.VarChar(255)
+  body      String   @db.LongText
+  attempts  Int      @default(0)
+  lastError String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}

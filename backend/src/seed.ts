@@ -1,5 +1,5 @@
 import { requireDevelopment } from './config.js';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from './database.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 

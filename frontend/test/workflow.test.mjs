@@ -155,7 +155,10 @@ test('F03/V02: guest order routes and restricted outbox route are reachable', ()
 test('F03/V02: image uploads retain multipart boundary and session credentials', async () => {
   const original = globalThis.fetch;
   const calls = [];
-  globalThis.fetch = async (url, init) => { calls.push({ url, init }); return { ok: true, json: async () => ({ ok: true }) }; };
+  globalThis.fetch = async (url, init) => {
+    if (url === '/api/csrf') return { ok: true, json: async () => ({ csrfToken: 'fictional-csrf-token' }) };
+    calls.push({ url, init }); return { ok: true, json: async () => ({ ok: true }) };
+  };
   try {
     const image = new FormData(); image.append('image', new Blob(['fictional'], { type: 'image/png' }), 'fixture.png');
     await apiFetch('/api/admin/categories/a/image', { method: 'POST', body: image });
