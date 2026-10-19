@@ -10,6 +10,9 @@ import type { Prisma } from '@prisma/client';
 import { Prisma as DatabasePrisma, PrismaClient } from './database.js';
 import { DatabaseSessionStore } from './session-store.js';
 import { retryTransaction } from './transaction-retry.js';
+import { authentication, requireAccount, AuthError, authErrorHandler } from './authentication.js';
+import { authEmailPreview } from './auth-email.js';
+import { supplierAdministration, contactSchema } from './supplier-access.js';
 import { z } from 'zod';
 import { projectRoot, publicDir, uploadDir, requireDevelopment } from './config.js';
 import { boundary, cookieOptions, createRateLimit, csrfProtection, csrfToken, isLoopback, securityConfig, securityHeaders, storefrontCsp, unsafeMethod } from './security.js';
@@ -88,6 +91,7 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
   app.locals.csrfSecret = security.secret;
   if (security.remote) app.set('trust proxy', isLoopback);
   const appearance = createAppearanceRepository(prisma);
+  const auth = authentication(prisma);
   const uploads = options.uploadDirectory ?? uploadDir;
 
   app.use((_req, res, next) => {
@@ -146,10 +150,13 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
     req.guestCustomerId = await resolveGuest(req, prisma);
     next();
   }));
+  app.use(auth.load);
+  app.use('/api/auth', auth.router);
+  app.use(supplierAdministration(prisma));
 
   const requireRole = (role: 'ADMIN' | 'GUEST') => {
     return (req: any, res: any, next: any) => {
-      const currentRole = req.session?.userRole ?? 'GUEST';
+      const currentRole = req.account?.role ?? req.session?.userRole ?? 'GUEST';
       if (currentRole !== role && !(role === 'GUEST' && currentRole === 'ADMIN')) {
         return res.status(403).json({ error: 'Forbidden: missing required role.' });
       }
@@ -158,6 +165,7 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
   };
 
   const currentUser = (req: any) => {
+    if (req.account) return { role: req.account.role, displayName: req.account.displayName, email: req.account.email, authenticated: true, mockAccountSwitchingEnabled: false };
     const role = req.session?.userRole || 'GUEST';
     return {
       role,
@@ -165,6 +173,7 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
       email: role === 'ADMIN' ? 'admin@local.test' : 'guest@local.test',
       mode: 'development',
       mockAccountSwitchingEnabled: !security.remote,
+      authenticated: false,
     };
   };
 
@@ -177,7 +186,8 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
   };
 
   const canAccessOrder = (req: express.Request, order: { userId: string | null }) =>
-    req.session.userRole === 'ADMIN' || Boolean(req.guestCustomerId && order.userId === req.guestCustomerId);
+    (req.account?.role === 'ADMIN' || (!req.account && req.session.userRole === 'ADMIN'))
+      || Boolean(order.userId && (order.userId === req.account?.id || order.userId === req.guestCustomerId));
 
   const categorySchema = z.object({
     name: z.string().min(2).max(80),
@@ -185,15 +195,6 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
     description: z.string().min(10).max(2000),
     priceCents: z.number().int().positive().max(1000000),
     active: z.boolean().optional().default(true),
-  });
-
-  const contactSchema = z.object({
-    supplierName: z.string().min(2).max(80),
-    email: z.string().email().max(254),
-    telephone: z.string().max(80).optional().or(z.literal('')),
-    whatsapp: z.string().max(80).optional().or(z.literal('')),
-    website: z.string().max(200).optional().or(z.literal('')),
-    notes: z.string().max(1500).optional().or(z.literal('')),
   });
 
   const sanitizeCategory = (category: any) => ({
@@ -317,16 +318,16 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
   }));
 
   app.get('/api/auth/me', asyncRoute(async (req, res) => {
-    await ensureGuest(req, res, prisma);
+    if (!req.account) await ensureGuest(req, res, prisma);
     res.json({
       ...currentUser(req),
       mode: process.env.NODE_ENV || 'development',
-      mockAccountSwitchingEnabled: isDevelopment() && !security.remote,
+      mockAccountSwitchingEnabled: !req.account && isDevelopment() && !security.remote,
     });
   }));
 
   app.post('/api/dev/session', asyncRoute(async (req, res) => {
-    if (!isDevelopment() || security.remote) {
+    if (!isDevelopment() || security.remote || req.account || req.authExpired) {
       return res.status(403).json({ error: 'Mock account switcher is only available in development mode.' });
     }
 
@@ -374,12 +375,8 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
     });
   }));
 
-  app.post('/api/orders', asyncRoute(async (req: any, res) => {
-    const role = req.session?.userRole || 'GUEST';
-    if (role !== 'GUEST' && role !== 'ADMIN') {
-      return res.status(403).json({ error: 'Only guest customers can place orders.' });
-    }
-
+  app.post(['/api/orders', '/api/account/orders'], asyncRoute(async (req: express.Request, res) => {
+    if (req.path.startsWith('/api/account/') && !req.account) throw new AuthError(401, 'Sign in to place an account order.', 'AUTH_REQUIRED');
     const parsed = z.object({
       customerEmail: z.string().email().max(254),
       checkoutKey: z.string().uuid().optional(),
@@ -399,7 +396,8 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
         return true;
       });
 
-    const customerId = await ensureGuest(req, res, prisma);
+    if (req.authExpired) throw new AuthError(401, 'Your account session expired. Sign in again.', 'AUTH_EXPIRED');
+    const customerId = req.account?.id ?? await ensureGuest(req, res, prisma);
     await new Promise<void>((resolve, reject) => req.session.save((error: Error | null) => error ? reject(error) : resolve()));
     const orderNumber = parsed.data.checkoutKey
       ? `ORD-${createHash('sha256').update(`${customerId}:${parsed.data.checkoutKey}`).digest('hex')}`
@@ -433,12 +431,7 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
         data: {
           orderNumber, customerEmail: parsed.data.customerEmail,
           status: 'PENDING', totalCents: categories.reduce((total, category) => total + category.priceCents, 0),
-          user: {
-            connectOrCreate: {
-              where: { id: customerId },
-              create: { id: customerId, email: `guest-${customerId}@local.test`, role: 'GUEST', displayName: 'Mock Guest' },
-            },
-          },
+          user: { connect: { id: customerId } },
           items: { create: categories.map((category) => ({
             categoryId: category.id, categoryName: category.name, priceCents: category.priceCents, quantity: 1,
           })) },
@@ -460,13 +453,32 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
   }));
 
   app.get('/api/orders', asyncRoute(async (req, res) => {
-    if (!req.guestCustomerId) throw new HttpError(401, 'Guest authorization required.');
+    if (req.authExpired) throw new AuthError(401, 'Your account session expired. Sign in again.', 'AUTH_EXPIRED');
+    const ownerId = req.account?.id ?? req.guestCustomerId;
+    if (!ownerId) throw new HttpError(401, 'Customer authorization required.');
     const orders = await prisma.order.findMany({
-      where: { userId: req.guestCustomerId },
+      where: { userId: ownerId },
       orderBy: { createdAt: 'desc' },
       include: { items: true, payment: true, emailDelivery: true },
     });
     return res.json({ items: orders.map(customerOrder) });
+  }));
+
+  app.get('/api/guest/orders', asyncRoute(async (req, res) => {
+    if (!req.guestCustomerId) throw new AuthError(401, 'A valid guest cookie is required.');
+    const orders = await prisma.order.findMany({ where: { userId: req.guestCustomerId }, orderBy: { createdAt: 'desc' }, include: { items: true, payment: true, emailDelivery: true } });
+    res.json({ items: orders.map(customerOrder) });
+  }));
+
+  app.get('/api/account/orders', requireAccount(), asyncRoute(async (req, res) => {
+    const orders = await prisma.order.findMany({ where: { userId: req.account!.id }, orderBy: { createdAt: 'desc' }, include: { items: true, payment: true, emailDelivery: true } });
+    res.json({ items: orders.map(customerOrder) });
+  }));
+
+  app.get('/api/dev/auth-email-outbox', requireRole('ADMIN'), asyncRoute(async (_req, res) => {
+    if (!isDevelopment() || security.remote) throw new AuthError(404, 'Not found.');
+    const items = await prisma.authEmail.findMany({ orderBy: { createdAt: 'desc' }, take: 100 });
+    res.json({ mode: auth.emailMode, items: items.map(({ body, ...item }) => ({ ...item, ...authEmailPreview(body) })) });
   }));
 
   app.get('/api/orders/:id/delivery', asyncRoute(async (req, res) => {
@@ -479,7 +491,7 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
     }
     const { recipient, subject, body } = order.emailDelivery;
     let theme = await appearance.read();
-    if (req.session.userRole === 'ADMIN' && req.query.theme !== undefined) {
+    if ((req.account?.role === 'ADMIN' || (!req.account && req.session.userRole === 'ADMIN')) && req.query.theme !== undefined) {
       const parsed = z.enum(themeIds).safeParse(req.query.theme);
       if (!parsed.success) throw new HttpError(400, 'Invalid email preview theme.');
       theme = parsed.data;
@@ -728,8 +740,10 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
   }
 
   const errorHandler: ErrorRequestHandler = (error, _req, res, next) => {
+    error = authErrorHandler(error);
     if (res.headersSent) return next(error);
     if (error instanceof HttpError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof AuthError) return res.status(error.status).json({ error: error.message, ...(error.code ? { code: error.code } : {}) });
     if (error instanceof DatabasePrisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2002') return res.status(409).json({ error: 'A record with that identifier already exists.' });
       if (error.code === 'P2025') return res.status(404).json({ error: 'Record not found.' });

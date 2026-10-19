@@ -1,12 +1,14 @@
 import { isDemo } from './deployment';
 
-export type Role = 'ADMIN' | 'GUEST';
+export type Role = 'ADMIN' | 'GUEST' | 'CUSTOMER' | 'SUPPLIER';
 export type AuthState = {
   role: Role;
   displayName: string;
   email: string;
   mode?: string;
   mockAccountSwitchingEnabled?: boolean;
+  authenticated?: boolean;
+  sessionExpired?: boolean;
 };
 export type CartItem = { categoryId: string; name: string; priceCents: number };
 

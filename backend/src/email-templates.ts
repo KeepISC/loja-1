@@ -33,18 +33,18 @@ function orderUrl(order: EmailOrder, options: Options) {
   return url.href;
 }
 
-function action(url?: string) {
-  return url ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 12px;"><tr><td bgcolor="#254fb5" style="background-color:#254fb5;border-radius:6px;text-align:center;padding:14px 24px;"><a href="${escapeEmailHtml(url)}" style="font-family:Arial,Helvetica,sans-serif;color:#ffffff;font-size:16px;font-weight:bold;text-decoration:none;display:inline-block;">Ver pedido</a></td></tr></table><p style="font-size:13px;color:#526074;margin:8px 0 0;line-height:20px;">O acesso ao pedido continua a exigir a sessão autorizada.</p>` : '';
+function action(url?: string, document?: EmailDocument) {
+  return url ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 12px;"><tr><td bgcolor="#254fb5" style="background-color:#254fb5;border-radius:6px;text-align:center;padding:14px 24px;"><a href="${escapeEmailHtml(url)}" style="font-family:Arial,Helvetica,sans-serif;color:#ffffff;font-size:16px;font-weight:bold;text-decoration:none;display:inline-block;">${escapeEmailHtml(document?.actionLabel ?? 'Ver pedido')}</a></td></tr></table><p style="font-size:13px;color:#526074;margin:8px 0 0;line-height:20px;">${escapeEmailHtml(document?.actionNote ?? 'O acesso ao pedido continua a exigir a sessão autorizada.')}</p>` : '';
 }
 
 export function renderEmailDocument(document: EmailDocument, theme: ThemeId = 'classic') {
   if (!themeIds.includes(theme)) throw new Error('Invalid email theme.');
   // Validate even stored/preview URLs; no arbitrary link can enter a presentation.
   const safe = { ...document, url: httpsUrl(document.url)?.href };
-  return theme === 'classic' ? layout(safe.title, safe.intro, safe.content, safe.url) : themedEmailLayout(theme, safe, escapeEmailHtml);
+  return theme === 'classic' ? layout(safe.title, safe.intro, safe.content, safe.url, safe) : themedEmailLayout(theme, safe, escapeEmailHtml);
 }
 
-function layout(title: string, intro: string, content: string, url?: string) {
+function layout(title: string, intro: string, content: string, url?: string, document?: EmailDocument) {
   return `<!doctype html>
 <html lang="pt-PT"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeEmailHtml(title)}</title></head>
 <body style="margin:0;padding:0;background-color:#f3f6fb;color:#182331;font-family:Arial,Helvetica,sans-serif;">
@@ -56,10 +56,10 @@ function layout(title: string, intro: string, content: string, url?: string) {
 <tr><td style="padding:28px 24px;font-size:16px;line-height:25px;word-wrap:break-word;overflow-wrap:anywhere;">
 <h1 style="margin:0 0 14px;color:#182331;font-family:Arial,Helvetica,sans-serif;font-size:26px;line-height:34px;font-weight:bold;">${escapeEmailHtml(title)}</h1>
 <p style="margin:0 0 24px;color:#394558;font-size:16px;line-height:25px;">${escapeEmailHtml(intro)}</p>
-${content}${action(url)}
-<p style="margin:24px 0 0;color:#526074;font-size:14px;line-height:22px;">Pode consultar os seus pedidos na aplicação local. Guarde esta mensagem para referência.</p>
+${content}${action(url, document)}
+<p style="margin:24px 0 0;color:#526074;font-size:14px;line-height:22px;">${escapeEmailHtml(document?.closingNote ?? 'Pode consultar os seus pedidos na aplicação local. Guarde esta mensagem para referência.')}</p>
 </td></tr>
-<tr><td bgcolor="#f8fafc" style="padding:20px 24px;border-top:1px solid #e4e9f2;background-color:#f8fafc;color:#526074;font-size:12px;line-height:19px;"><strong>Supplier Market</strong><br>Email transacional do ambiente local de demonstração. Nenhuma mensagem externa foi enviada.<br>Os contactos adquiridos são privados; não partilhe esta mensagem.</td></tr>
+<tr><td bgcolor="#f8fafc" style="padding:20px 24px;border-top:1px solid #e4e9f2;background-color:#f8fafc;color:#526074;font-size:12px;line-height:19px;"><strong>Supplier Market</strong><br>${escapeEmailHtml(document?.footerNotice ?? 'Email transacional do ambiente local de demonstração. Nenhuma mensagem externa foi enviada.')}<br>${escapeEmailHtml(document?.actionNote ?? 'Os contactos adquiridos são privados; não partilhe esta mensagem.')}</td></tr>
 </table>
 <!--[if mso]></td></tr></table><![endif]-->
 </td></tr></table></body></html>`;

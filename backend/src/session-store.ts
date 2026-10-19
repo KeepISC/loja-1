@@ -40,7 +40,8 @@ export class DatabaseSessionStore extends session.Store {
     const write = async () => {
       await this.initialize();
       // Explicit fields prevent accidentally persisting a raw session ID.
-      const payload = JSON.stringify({ cookie: data.cookie, userRole: data.userRole, customerId: data.customerId, csrfToken: data.csrfToken });
+      const payload = JSON.stringify({ cookie: data.cookie, userRole: data.userRole, customerId: data.customerId, csrfToken: data.csrfToken,
+        accountId: data.accountId, accountVersion: data.accountVersion, authenticatedAt: data.authenticatedAt });
       const row = { data: payload, expiresAt: this.expiry(data) };
       await this.prisma.session.upsert({ where: { idHash: sessionHash(id) }, create: { idHash: sessionHash(id), ...row }, update: row });
       if (Date.now() >= this.nextCleanup) {

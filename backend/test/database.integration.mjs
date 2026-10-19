@@ -25,6 +25,7 @@ process.env.REMOTE_TESTING = 'false';
 process.env.REMOTE_ORIGIN = '';
 process.env.SESSION_SECRET ??= 'fictional-database-integration-secret-32-plus';
 process.env.ALLOW_MOCK_PAYMENT = 'true';
+process.env.AUTH_EMAIL_TRANSPORT = 'preview'; process.env.AUTH_APP_ORIGIN = 'http://localhost:5173';
 const { createApp, prisma } = await import('../dist/app.js');
 const { PrismaClient } = await import('../dist/database.js');
 const { DatabaseSessionStore, sessionHash } = await import('../dist/session-store.js');
@@ -81,17 +82,19 @@ test(`${mysql ? 'MySQL' : 'SQLite'} database integration`, async (t) => {
         return;
       }
       const tables = await inspectDatabase(prisma);
-      assert.equal(tables.length, 10);
+      assert.equal(tables.length, 15);
       assert.ok(tables.every((table) => table.engine === 'InnoDB'));
       const migrations = await prisma.$queryRaw`SELECT migration_name, finished_at, rolled_back_at, checksum FROM _prisma_migrations ORDER BY started_at`;
-      assert.deepEqual(migrations.map((entry) => entry.migration_name), ['202610190001_init']);
+      assert.deepEqual(migrations.map((entry) => entry.migration_name), ['202610190001_init', '202610190002_authentication']);
       assert.ok(migrations.every((entry) => entry.finished_at && !entry.rolled_back_at));
       const { createHash } = await import('node:crypto');
-      const migration = await readFile(new URL('../../prisma/mysql/migrations/202610190001_init/migration.sql', import.meta.url));
-      assert.equal(migrations[0].checksum, createHash('sha256').update(migration).digest('hex'));
+      for (const entry of migrations) {
+        const migration = await readFile(new URL(`../../prisma/mysql/migrations/${entry.migration_name}/migration.sql`, import.meta.url));
+        assert.equal(entry.checksum, createHash('sha256').update(migration).digest('hex'));
+      }
       const fks = await prisma.$queryRaw`SELECT DELETE_RULE AS rule FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE()`;
-      assert.equal(fks.length, 6);
-      assert.equal(fks.filter((fk) => fk.rule === 'CASCADE').length, 4);
+      assert.equal(fks.length, 11);
+      assert.equal(fks.filter((fk) => fk.rule === 'CASCADE').length, 8);
       assert.ok(fks.some((fk) => fk.rule === 'SET NULL'));
       assert.ok(fks.some((fk) => fk.rule === 'RESTRICT' || fk.rule === 'NO ACTION'));
       const indexes = await prisma.$queryRaw`SELECT INDEX_NAME AS name, NON_UNIQUE AS nonUnique FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE()`;

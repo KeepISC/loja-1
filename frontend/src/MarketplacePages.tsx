@@ -148,9 +148,9 @@ export function CategoryManagement({ onChanged }: { onChanged: () => void }) {
   </section>;
 }
 
-export function OrdersPage({ auth }: { auth: AuthState | null }) {
-  const resource = useResource<{ items: Order[] }>('/api/orders', auth?.role);
-  return <Shell><h1 className="text-3xl font-bold">Meus pedidos</h1><ErrorMessage text={resource.error} />
+export function OrdersPage({ auth, guest = false }: { auth: AuthState | null; guest?: boolean }) {
+  const resource = useResource<{ items: Order[] }>(guest ? '/api/guest/orders' : auth?.authenticated ? '/api/account/orders' : '/api/orders', `${auth?.role}|${auth?.email}`);
+  return <Shell><h1 className="text-3xl font-bold">{guest ? 'Compras como convidado' : 'Meus pedidos'}</h1><ErrorMessage text={resource.error} />
     {resource.loading && <p>Carregando pedidos...</p>}
     {resource.data?.items.length === 0 && <p>Ainda não existem pedidos nesta sessão.</p>}
     <ul className="space-y-3">{resource.data?.items.map((order) => <li key={order.id} className={panel + ' break-words'}><Link className="font-semibold text-brand-500 underline" to={'/orders/' + encodeURIComponent(order.id)}>{order.orderNumber}</Link><p>{order.status} · {money(order.totalCents)}</p></li>)}</ul>
@@ -188,7 +188,7 @@ export function OrderDetailsPage({ auth }: { auth: AuthState | null }) {
   const [search] = useSearchParams();
   const stateId = (location.state as { order?: { id?: unknown } } | null)?.order?.id;
   const id = params.id || search.get('orderId') || (typeof stateId === 'string' ? stateId : null);
-  const identity = `${id}|${auth?.role}`;
+  const identity = `${id}|${auth?.role}|${auth?.email}`;
   const [result, setResult] = useState<{ key: string; order?: Order; error?: string } | null>(null);
   const [version, setVersion] = useState(0);
   const key = `${identity}|${version}`;
@@ -244,7 +244,7 @@ export function OrderDetailsPage({ auth }: { auth: AuthState | null }) {
 
 export function EmailOutboxPage({ auth }: { auth: AuthState | null }) {
   const theme = useActiveTheme(auth, false);
-  const allowed = !isDemo && auth?.role === 'ADMIN' && auth.mockAccountSwitchingEnabled === true;
+  const allowed = !isDemo && auth?.role === 'ADMIN' && (auth.authenticated === true || auth.mockAccountSwitchingEnabled === true);
   const resource = useResource<{ items: OutboxItem[] }>(allowed ? '/api/dev/email-outbox?theme=' + theme : null, auth?.role);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

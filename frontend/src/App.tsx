@@ -6,6 +6,8 @@ import { isDemo } from './deployment';
 import { demoNotice } from './demo';
 import { AppearancePanel, ThemeController, useActiveTheme } from './Appearance';
 import { EmailThemePreview } from './EmailThemePreview';
+import { AccountNavigation, AuthPage } from './AuthPages';
+import { AdminAccounts, SupplierContacts, AuthEmailOutbox } from './AccountManagement';
 import type { ThemeId } from './themes';
 import { StoreHeader, StoreHome, StoreCartPage, StoreProductPage } from './Storefront';
 import { AddToCartButton, CartFeedbackNotice, useCartFeedback } from './CartFeedback';
@@ -75,7 +77,10 @@ function useCart() {
 
 let checkoutStorage: Storage | undefined;
 try { if (!isDemo) checkoutStorage = window.sessionStorage; } catch { /* In-memory retry remains available. */ }
-const checkout = createCheckout(apiFetch, checkoutStorage);
+const checkout = createCheckout(apiFetch, checkoutStorage, () => {
+  const auth = authStore.getSnapshot();
+  return auth?.authenticated ? auth.email : '';
+});
 
 function Header({ demo }: { demo: boolean }) {
   const { auth } = useAuth();
@@ -101,7 +106,7 @@ function Header({ demo }: { demo: boolean }) {
           <Link to="/">Catálogo</Link>
           <Link to="/cart">Carrinho</Link>
           {!demo && <Link to="/orders">Meus pedidos</Link>}
-          {!demo && <Link to="/admin">Admin</Link>}
+          {!demo && auth?.role === 'ADMIN' && <Link to="/admin">Admin</Link>}
         </nav>
 
         <div className="market-header-actions">
@@ -539,6 +544,7 @@ function App({ demo = isDemo }: { demo?: boolean } = {}) {
       <ThemeController auth={auth} demo={demo} />
       {demo && <div role="status" className="bg-amber-100 px-4 py-3 text-center font-medium text-amber-900">{demoNotice}</div>}
       {theme === 'classic' ? <Header demo={demo} /> : <StoreHeader theme={theme} demo={demo} />}
+      <AccountNavigation demo={demo} />
       <div className="border-b border-line bg-muted">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-2 text-sm text-ink-secondary">
@@ -565,6 +571,11 @@ function App({ demo = isDemo }: { demo?: boolean } = {}) {
         <Route path="/checkout" element={demo ? <DemoUnavailablePage /> : <CheckoutPage />} />
         <Route path="/success" element={demo ? <DemoUnavailablePage /> : <OrderDetailsPage auth={auth} />} />
         <Route path="/orders" element={demo ? <DemoUnavailablePage /> : <OrdersPage auth={auth} />} />
+        <Route path="/guest/orders" element={demo ? <DemoUnavailablePage /> : <OrdersPage auth={auth} guest />} />
+        {(['login', 'register', 'verify-email', 'forgot-password', 'reset-password', 'resend-verification'] as const).map((flow) => <Route key={flow} path={'/' + flow} element={demo ? <DemoUnavailablePage /> : <AuthPage key={flow} flow={flow} />} />)}
+        <Route path="/supplier" element={demo ? <DemoUnavailablePage /> : <SupplierContacts auth={auth} />} />
+        <Route path="/admin/accounts" element={demo ? <DemoUnavailablePage /> : <AdminAccounts auth={auth} />} />
+        <Route path="/dev/auth-email-outbox" element={demo ? <DemoUnavailablePage /> : <AuthEmailOutbox auth={auth} />} />
         <Route path="/orders/:id" element={demo ? <DemoUnavailablePage /> : <OrderDetailsPage auth={auth} />} />
         <Route path="/dev/email-outbox" element={demo ? <DemoUnavailablePage /> : <EmailOutboxPage auth={auth} />} />
         <Route path="/admin" element={demo ? <DemoUnavailablePage /> : <AdminPage />} />

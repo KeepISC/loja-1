@@ -11,7 +11,7 @@ Only fictional development fixtures belong in this repository. Local environment
 - Frontend: React + TypeScript + Vite + Tailwind CSS
 - Backend: Node.js + Express + TypeScript
 - Database: SQLite + Prisma ORM
-- Mock providers: payment and email are local-only
+- Mock providers: payments and order emails remain local; authentication emails support private preview or configurable SMTP
 
 ## Local setup
 
@@ -139,7 +139,7 @@ Historical JSON outbox files are left untouched and are no longer written or use
 
 ## Replace the mock providers
 
-The dummy provider classes remain in `backend/src/app.ts`. Real authentication/payment/email integration is outside this MVP. Production must remain disabled until those integrations and their verification/idempotency contracts are implemented; changing constructors alone is insufficient.
+The dummy provider classes remain in `backend/src/app.ts`. Account authentication and RBAC are described in [docs/authentication-rbac.md](docs/authentication-rbac.md): Customer registration, verified login, password reset, persistent sessions and Admin-assigned Supplier contacts coexist with local guest/demo workflows. Authentication emails default to a private local preview outbox. The configurable SMTP adapter, encrypted durable queue, retry worker and Hostinger setup are documented in [docs/authentication-email.md](docs/authentication-email.md). SMTP tests use mocked delivery; no real mailbox or credentials were configured. Production remains disabled pending real payment/order-email providers and deployment verification.
 
 ## Tests
 

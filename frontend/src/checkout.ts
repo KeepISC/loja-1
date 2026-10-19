@@ -11,7 +11,7 @@ type DeliveredOrder = {
 type Api = <T>(path: string, init?: RequestInit) => Promise<T>;
 type Attempt = { key: string; signature: string; orderId?: string };
 
-export function createCheckout(api: Api, storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>) {
+export function createCheckout(api: Api, storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>, identity: () => string = () => '') {
   let attempt: Attempt | undefined;
   try {
     const saved = JSON.parse(storage?.getItem('supplier-checkout') || 'null');
@@ -23,11 +23,12 @@ export function createCheckout(api: Api, storage?: Pick<Storage, 'getItem' | 'se
     async complete(cart: CartItem[], email: string): Promise<DeliveredOrder> {
       if (!cart.length) throw new Error('Adicione pelo menos um item ao carrinho.');
       const ids = [...new Set(cart.map((item) => item.categoryId))].sort();
-      const signature = JSON.stringify({ ids, email });
+      const account = identity();
+      const signature = JSON.stringify({ ids, email, ...(account ? { account } : {}) });
       if (attempt?.signature !== signature) attempt = { key: crypto.randomUUID(), signature };
       persist();
       if (!attempt.orderId) {
-        const response = await api<{ order: DeliveredOrder }>('/api/orders', {
+        const response = await api<{ order: DeliveredOrder }>(account ? '/api/account/orders' : '/api/orders', {
           method: 'POST',
           body: JSON.stringify({ customerEmail: email, checkoutKey: attempt.key, items: ids.map((categoryId) => ({ categoryId })) }),
         });

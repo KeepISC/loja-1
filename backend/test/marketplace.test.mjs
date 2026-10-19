@@ -19,6 +19,7 @@ sqlite.exec(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'));
 process.env.DATABASE_URL = 'file:' + database.replaceAll('\\', '/');
 process.env.NODE_ENV = 'development';
 process.env.ALLOW_MOCK_PAYMENT = 'true';
+process.env.AUTH_EMAIL_TRANSPORT = 'preview'; process.env.AUTH_APP_ORIGIN = 'http://localhost:5173';
 process.env.SESSION_SECRET = 'fictional-regression-session-secret';
 const { createApp, prisma } = await import('../src/app.ts');
 const { seedDatabase } = await import('../src/seed.ts');

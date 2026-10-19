@@ -8,12 +8,66 @@ datasource db {
 }
 
 model User {
-  id          String   @id @default(uuid())
+  id          String           @id @default(uuid())
   role        String
   displayName String
-  email       String   @unique
-  createdAt   DateTime @default(now())
+  email       String           @unique
+  createdAt   DateTime         @default(now())
   orders      Order[]
+  account     Account?
+  supplier    SupplierProfile?
+}
+
+model Account {
+  userId          String      @id
+  passwordHash    String
+  emailVerifiedAt DateTime?
+  sessionVersion  Int         @default(0)
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokens          AuthToken[]
+  messages        AuthEmail[]
+}
+
+model AuthToken {
+  idHash    String    @id
+  userId    String
+  purpose   String
+  expiresAt DateTime
+  usedAt    DateTime?
+  account   Account   @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@unique([userId, purpose])
+  @@index([expiresAt])
+}
+
+// Local email adapter only; bearer links belong in the private development outbox.
+model AuthEmail {
+  id        String   @id @default(uuid())
+  userId    String
+  recipient String
+  subject   String
+  body      String
+  createdAt DateTime @default(now())
+  account   Account  @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model AuthRateLimit {
+  keyHash   String   @id
+  count     Int      @default(0)
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
+
+// A separate profile allows a later application/approval lifecycle without
+// granting access through registration or changing existing contact ownership.
+model SupplierProfile {
+  userId   String            @id
+  active   Boolean           @default(false)
+  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contacts SupplierContact[]
 }
 
 model SiteSetting {
@@ -44,7 +98,7 @@ model Category {
 }
 
 model SupplierContact {
-  id           String   @id @default(uuid())
+  id           String           @id @default(uuid())
   categoryId   String
   supplierName String
   email        String
@@ -52,9 +106,12 @@ model SupplierContact {
   whatsapp     String?
   website      String?
   notes        String?
-  category     Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  category     Category         @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  supplierId   String?
+  supplier     SupplierProfile? @relation(fields: [supplierId], references: [userId], onDelete: SetNull)
 
   @@index([categoryId])
+  @@index([supplierId])
 }
 
 model Order {

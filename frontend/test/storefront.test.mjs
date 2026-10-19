@@ -7,7 +7,7 @@ import { StaticRouter } from 'react-router-dom/server.js';
 import postcss from 'postcss';
 import { StoreHome, StoreHeader, StoreCartPage, StoreProductPage } from '../src/Storefront.tsx';
 import { localPreviewTheme, selectLocalPreview } from '../src/Appearance.tsx';
-import { cartStore } from '../src/stores.ts';
+import { cartStore, authStore } from '../src/stores.ts';
 import { defaultTheme, themes } from '../src/themes.ts';
 
 const items = [
@@ -68,10 +68,13 @@ test('Storefront: distinct headers keep a single animation destination and omit 
       assert.match(header, /aria-haspopup="dialog"/);
       assert.match(header, /aria-expanded="false"/);
       assert.doesNotMatch(header, /href="\/admin"|href="\/orders"/);
+      authStore.set({ role: 'CUSTOMER', authenticated: true, displayName: 'Fixture', email: 'fixture@example.test' });
+      assert.doesNotMatch(render(StoreHeader, { theme, demo: false }), /href="\/admin"/);
+      authStore.set({ role: 'ADMIN', authenticated: true, displayName: 'Fixture', email: 'admin@example.test' });
       assert.match(render(StoreHeader, { theme, demo: false }), /href="\/admin"/);
     }
     assert.match(render(StoreHeader, { theme: 'marketplace', demo: true }), /role="search"/);
-  } finally { cartStore.set([]); }
+  } finally { cartStore.set([]); authStore.set(null); }
 });
 
 test('Storefront: changing presentation keeps cart membership and prices; demo checkout stays disabled', () => {

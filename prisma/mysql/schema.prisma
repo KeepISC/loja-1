@@ -9,12 +9,66 @@ datasource db {
 }
 
 model User {
-  id          String   @id @default(uuid()) @db.VarChar(128)
-  role        String   @db.VarChar(20)
-  displayName String   @db.VarChar(255)
-  email       String   @unique @db.VarChar(254)
-  createdAt   DateTime @default(now())
+  id          String           @id @default(uuid()) @db.VarChar(128)
+  role        String           @db.VarChar(20)
+  displayName String           @db.VarChar(255)
+  email       String           @unique @db.VarChar(254)
+  createdAt   DateTime         @default(now())
   orders      Order[]
+  account     Account?
+  supplier    SupplierProfile?
+}
+
+model Account {
+  userId          String      @id @db.VarChar(128)
+  passwordHash    String      @db.VarChar(255)
+  emailVerifiedAt DateTime?
+  sessionVersion  Int         @default(0)
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokens          AuthToken[]
+  messages        AuthEmail[]
+}
+
+model AuthToken {
+  idHash    String    @id @db.Char(64)
+  userId    String    @db.VarChar(128)
+  purpose   String    @db.VarChar(20)
+  expiresAt DateTime
+  usedAt    DateTime?
+  account   Account   @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@unique([userId, purpose])
+  @@index([expiresAt])
+}
+
+// Local email adapter only; bearer links belong in the private development outbox.
+model AuthEmail {
+  id        String   @id @default(uuid()) @db.VarChar(128)
+  userId    String   @db.VarChar(128)
+  recipient String   @db.VarChar(254)
+  subject   String   @db.VarChar(255)
+  body      String   @db.LongText
+  createdAt DateTime @default(now())
+  account   Account  @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model AuthRateLimit {
+  keyHash   String   @id @db.Char(64)
+  count     Int      @default(0)
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
+
+// A separate profile allows a later application/approval lifecycle without
+// granting access through registration or changing existing contact ownership.
+model SupplierProfile {
+  userId   String            @id @db.VarChar(128)
+  active   Boolean           @default(false)
+  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contacts SupplierContact[]
 }
 
 model SiteSetting {
@@ -45,17 +99,20 @@ model Category {
 }
 
 model SupplierContact {
-  id           String   @id @default(uuid()) @db.VarChar(128)
-  categoryId   String   @db.VarChar(128)
-  supplierName String   @db.VarChar(80)
-  email        String   @db.VarChar(254)
-  telephone    String?  @db.VarChar(80)
-  whatsapp     String?  @db.VarChar(80)
-  website      String?  @db.VarChar(200)
-  notes        String?  @db.Text
-  category     Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  id           String           @id @default(uuid()) @db.VarChar(128)
+  categoryId   String           @db.VarChar(128)
+  supplierName String           @db.VarChar(80)
+  email        String           @db.VarChar(254)
+  telephone    String?          @db.VarChar(80)
+  whatsapp     String?          @db.VarChar(80)
+  website      String?          @db.VarChar(200)
+  notes        String?          @db.Text
+  category     Category         @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  supplierId   String?          @db.VarChar(128)
+  supplier     SupplierProfile? @relation(fields: [supplierId], references: [userId], onDelete: SetNull)
 
   @@index([categoryId])
+  @@index([supplierId])
 }
 
 model Order {

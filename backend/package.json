@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24.7.0"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
@@ -17,6 +20,14 @@
     "test:mysql": "node --import ./scripts/mysql-test-env.mjs --import ./test/source-loader.mjs --test --test-isolation=none test/database.integration.mjs",
     "pretest:database": "npm run build",
     "test:database": "node --import ./test/source-loader.mjs --test --test-isolation=none test/database.integration.mjs",
+    "pretest:auth": "npm run build",
+    "test:auth": "node --import ./test/source-loader.mjs --test --test-isolation=none test/auth.integration.mjs",
+    "pretest:auth:mysql": "npm run build",
+    "test:auth:mysql": "node --import ./scripts/mysql-test-env.mjs --import ./test/source-loader.mjs --test --test-isolation=none test/auth.integration.mjs",
+    "preauth:bootstrap-admin": "npm run build",
+    "auth:bootstrap-admin": "node scripts/bootstrap-admin.mjs",
+    "preauth:email:worker": "npm run build",
+    "auth:email:worker": "node scripts/auth-email-worker.mjs",
     "mysql:validate": "node scripts/mysql-local.mjs validate",
     "seed": "cross-env DATABASE_URL=file:../database/dev.db tsx src/seed.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -32,6 +43,7 @@
     "express": "^4.21.1",
     "express-session": "^1.18.1",
     "multer": "^1.4.5-lts.1",
+    "nodemailer": "^10.1.7",
     "prisma": "^5.22.0",
     "sqlite3": "^6.0.1",
     "zod": "^3.23.0"

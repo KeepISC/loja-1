@@ -1,5 +1,12 @@
 # Local MySQL support and validation
 
+Authentication follow-up: `202610190002_authentication` adds five tables and
+nullable Supplier contact ownership. Both migrations are applied to the local
+test database, with checksums verified by integration tests. See
+[authentication-rbac.md](authentication-rbac.md) for the current fourteen-table
+application schema, authentication/RBAC behavior and latest verification results.
+The original compatibility validation record below describes the initial schema.
+
 SQLite remains the default development database (`prisma/schema.prisma`,
 `database/dev.db`). MySQL uses `prisma/mysql/schema.prisma` and its own migration
 history. MySQL client generation writes to `node_modules/.prisma/mysql-client`;

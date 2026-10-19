@@ -1,7 +1,12 @@
 import { basePath, isDemo } from './deployment';
 import { demoApiFetch } from './demo';
+import { authStore } from './stores';
 
-export function createApiClient(request: typeof fetch) {
+export class ApiError extends Error {
+  constructor(message: string, public status: number, public code?: string) { super(message); }
+}
+
+export function createApiClient(request: typeof fetch, onUnauthorized: () => void = () => {}) {
   let csrfRequest: Promise<string> | undefined;
   const token = () => csrfRequest ??= request('/api/csrf', { credentials: 'include' }).then(async (response) => {
     const payload = await response.json();
@@ -25,18 +30,24 @@ export function createApiClient(request: typeof fetch) {
         csrfRequest = undefined;
         headers.set('X-CSRF-Token', await token());
         response = await request(input, { ...init, headers, credentials: 'include' });
-      } else throw new Error(payload.error ?? 'Request failed.');
+      } else {
+        if (response.status === 401) { csrfRequest = undefined; onUnauthorized(); }
+        throw new ApiError(payload.error ?? 'Request failed.', response.status, payload.code);
+      }
     }
     if (!response.ok) {
-      let message = 'Request failed.';
-      try { message = (await response.json()).error ?? message; } catch { /* Do not expose raw server responses. */ }
-      throw new Error(message);
+      let payload: { error?: string; code?: string } = {};
+      try { payload = await response.json(); } catch { /* Do not expose raw server responses. */ }
+      if (response.status === 401) { csrfRequest = undefined; onUnauthorized(); }
+      throw new ApiError(payload.error ?? 'Request failed.', response.status, payload.code);
     }
     return response.json() as Promise<T>;
   };
 }
 
-const localApi = createApiClient((input, init) => fetch(input, init));
+const localApi = createApiClient((input, init) => fetch(input, init), () => {
+  authStore.set({ role: 'GUEST', displayName: 'Convidado', email: '', authenticated: false, sessionExpired: true });
+});
 export async function apiFetch<T>(input: string, init: RequestInit = {}): Promise<T> {
   if (isDemo) return demoApiFetch<T>(input, init, basePath);
   return localApi<T>(input, init);

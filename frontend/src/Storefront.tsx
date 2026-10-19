@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { AddToCartButton, useCartFeedback } from './CartFeedback';
 import { cartCountForDisplay } from './cart-feedback';
 import { observeStickyHeader } from './navigation';
-import { cartStore } from './stores';
+import { cartStore, authStore } from './stores';
 import type { ThemeId } from './themes';
 
 export type Product = { id: string; slug: string; name: string; description: string; priceCents: number; imageUrl: string; active: boolean };
@@ -19,6 +19,7 @@ function CartIcon() {
 }
 
 export function StoreHeader({ theme, demo }: { theme: NewTheme; demo: boolean }) {
+  const auth = useSyncExternalStore(authStore.subscribe, authStore.getSnapshot, authStore.getSnapshot);
   const cart = useCart();
   const feedback = useCartFeedback();
   const count = cartCountForDisplay(cart, feedback.pendingIds);
@@ -31,7 +32,7 @@ export function StoreHeader({ theme, demo }: { theme: NewTheme; demo: boolean })
   const navigate = useNavigate();
   useEffect(() => header.current ? observeStickyHeader(header.current) : undefined, [theme]);
   useEffect(() => { setMenu(false); setOpen(false); }, [location.pathname, theme]);
-  const links = <><Link to="/">{theme === 'minimal' ? 'A coleção' : 'Explorar'}</Link><Link to="/cart">Carrinho</Link>{!demo && <><Link to="/orders">Meus pedidos</Link><Link to="/admin">Admin</Link></>}</>;
+  const links = <><Link to="/">{theme === 'minimal' ? 'A coleção' : 'Explorar'}</Link><Link to="/cart">Carrinho</Link>{!demo && <><Link to="/orders">Meus pedidos</Link>{auth?.role === 'ADMIN' && <Link to="/admin">Admin</Link>}</>}</>;
   const brand = <Link to="/" className="sf-brand">{theme === 'dark' && <span aria-hidden="true" className="sf-monogram">S/M</span>}<span>Supplier<span className="sf-brand-second"> Market</span></span></Link>;
   const bag = <button type="button" ref={cartTrigger} className="sf-bag" aria-label={`Abrir carrinho, ${count} ${count === 1 ? 'item' : 'itens'}`} aria-haspopup="dialog" onClick={() => setOpen(true)}><CartIcon /><span className="sf-bag-label">{theme === 'minimal' ? 'Sacola' : 'Carrinho'}</span><span className="sf-bag-count">{count}</span>{theme === 'dark' && <span className="sf-bag-total">{money(cart.reduce((sum, item) => sum + item.priceCents, 0))}</span>}</button>;
   return <>

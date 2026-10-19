@@ -32,7 +32,7 @@ export function securityConfig(env: NodeJS.ProcessEnv = process.env): SecurityCo
   return { remote, origin, secret, origins };
 }
 
-export const cookieOptions = (remote: boolean) => ({ httpOnly: true, secure: remote, sameSite: 'lax' as const, path: '/' });
+export const cookieOptions = (remote: boolean) => ({ httpOnly: true, secure: remote || process.env.NODE_ENV === 'production', sameSite: 'lax' as const, path: '/' });
 
 export function boundary(config: SecurityConfig): RequestHandler {
   return (req, res, next) => {
