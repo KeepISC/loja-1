@@ -122,6 +122,7 @@ model Order {
   customerEmail String         @db.VarChar(254)
   status        String         @default("PENDING") @db.VarChar(20)
   totalCents    Int
+  currency      String @default("EUR") @db.VarChar(3)
   createdAt     DateTime       @default(now())
   user          User?          @relation(fields: [userId], references: [id])
   items         OrderItem[]
@@ -153,6 +154,11 @@ model Payment {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   confirmedAt DateTime?
+  paymentIntentId String? @unique @db.VarChar(255)
+  refundedCents Int @default(0)
+  attempts PaymentAttempt[]
+  events PaymentEvent[]
+  refunds PaymentRefund[]
   order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }
 
@@ -168,4 +174,47 @@ model EmailDelivery {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model PaymentAttempt {
+  id String @id @default(uuid()) @db.VarChar(36)
+  paymentId String @db.VarChar(36)
+  status String @default("CREATING") @db.VarChar(80)
+  sessionId String? @unique @db.VarChar(255)
+  intentId String? @unique @db.VarChar(255)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId, createdAt])
+}
+
+model PaymentEvent {
+  id String @id @default(uuid()) @db.VarChar(36)
+  eventId String? @unique @db.VarChar(255)
+  paymentId String @db.VarChar(36)
+  kind String @db.VarChar(80)
+  status String @db.VarChar(80)
+  amountCents Int
+  currency String @db.VarChar(3)
+  actorId String? @db.VarChar(36)
+  createdAt DateTime @default(now())
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId, createdAt])
+}
+
+model PaymentRefund {
+  id String @id @default(uuid()) @db.VarChar(36)
+  paymentId String @db.VarChar(36)
+  providerRefundId String? @unique @db.VarChar(255)
+  amountCents Int
+  status String @default("REQUESTED") @db.VarChar(80)
+  actorId String? @db.VarChar(36)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId, createdAt])
 }

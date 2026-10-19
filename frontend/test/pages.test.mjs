@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { StaticRouter } from 'react-router-dom/server.js';
+import { StaticRouter } from 'react-router-dom';
 import App from '../src/App.tsx';
 import { demoApiFetch, demoNotice } from '../src/demo.ts';
 import { authStore, cartStore } from '../src/stores.ts';

@@ -1,8 +1,10 @@
-/** @type {import('tailwindcss').Config} */
+// Loaded explicitly by index.css through Tailwind 4's @config compatibility API.
 export default {
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['ui-sans-serif', 'system-ui', 'sans-serif', '"Apple Color Emoji"', '"Segoe UI Emoji"', '"Segoe UI Symbol"', '"Noto Color Emoji"'],
+      },
       colors: {
         canvas: 'rgb(var(--canvas) / <alpha-value>)',
         surface: 'rgb(var(--surface) / <alpha-value>)',
@@ -22,8 +24,8 @@ export default {
           900: 'rgb(var(--ink) / <alpha-value>)',
         },
       },
-      borderRadius: { lg: 'var(--radius-control)', xl: 'var(--radius-panel)', '2xl': 'var(--radius-panel)' },
-      boxShadow: { sm: 'var(--shadow-panel)', lg: 'var(--shadow-hover)' },
+      borderRadius: { DEFAULT: '0.25rem', sm: '0.125rem', lg: 'var(--radius-control)', xl: 'var(--radius-panel)', '2xl': 'var(--radius-panel)' },
+      boxShadow: { DEFAULT: '0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)', sm: 'var(--shadow-panel)', lg: 'var(--shadow-hover)' },
     },
   },
   plugins: [],

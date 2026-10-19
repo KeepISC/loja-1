@@ -21,6 +21,9 @@ import { createAppearanceRepository, themeIds } from './appearance.js';
 import { renderSupplierDeliveryEmail } from './email-templates.js';
 import { encodeEmailContent, previewEmailContent } from './email-content.js';
 import { emailPreviewTypes, renderFictionalEmail } from './email-preview.js';
+import { paymentConfig, stripeProvider, PaymentError, type PaymentProvider } from './payment-provider.js';
+import { payments } from './payments.js';
+import { paymentSchemaInitializer } from './payment-schema.js';
 
 declare module 'express-session' {
   interface SessionData {
@@ -32,7 +35,7 @@ declare module 'express-session' {
 const prisma = new PrismaClient();
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 2 * 1024 * 1024, files: 1, fields: 0, parts: 2 },
+  limits: { fileSize: 2 * 1024 * 1024, files: 1, fields: 0, parts: 2, fieldArrayIndexLimit: 0 },
   fileFilter: (_req, file, cb) => {
     const allowed = ['image/png', 'image/jpeg', 'image/webp'];
     if (!allowed.includes(file.mimetype)) {
@@ -73,6 +76,7 @@ function customerOrder(order: OrderWithData) {
     customerEmail: order.customerEmail,
     status: order.status,
     totalCents: order.totalCents,
+    currency: order.currency,
     createdAt: order.createdAt,
     items: order.items.map(({ categoryId, categoryName, priceCents, quantity }) => ({ categoryId, categoryName, priceCents, quantity })),
     payment: order.payment ? { status: order.payment.status, provider: order.payment.provider } : null,
@@ -80,7 +84,7 @@ function customerOrder(order: OrderWithData) {
   };
 }
 
-export function createApp(options: { uploadDirectory?: string; frontendDirectory?: string } = {}) {
+export function createApp(options: { uploadDirectory?: string; frontendDirectory?: string; paymentProvider?: PaymentProvider } = {}) {
   requireDevelopment();
   const security = securityConfig();
   const frontendDirectory = options.frontendDirectory ?? path.join(projectRoot, 'frontend', 'dist');
@@ -92,6 +96,9 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
   if (security.remote) app.set('trust proxy', isLoopback);
   const appearance = createAppearanceRepository(prisma);
   const auth = authentication(prisma);
+  const paymentSettings = paymentConfig();
+  const initializePayments = paymentSchemaInitializer(prisma);
+  const stripePayments = paymentSettings.provider === 'STRIPE' ? payments(prisma, paymentSettings, options.paymentProvider ?? stripeProvider(paymentSettings)) : undefined;
   const uploads = options.uploadDirectory ?? uploadDir;
 
   app.use((_req, res, next) => {
@@ -107,6 +114,16 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
   app.use('/api', requestLimit);
   app.use('/api', (req, res, next) => unsafeMethod(req.method) ? writeLimit(req, res, next) : next());
   app.use('/api/dev/session', sessionLimit);
+  // Signature authentication replaces browser CSRF only on this exact raw-body route.
+  // It precedes JSON parsing, cookies and user sessions; all other guards still apply.
+  app.post('/api/payments/stripe/webhook', express.raw({ type: 'application/json', limit: '256kb' }), asyncRoute(async (req, res) => {
+    if (!stripePayments) throw new PaymentError(503, 'Stripe payments are disabled.');
+    if (!Buffer.isBuffer(req.body)) throw new PaymentError(400, 'Invalid webhook body.');
+    await initializePayments();
+    const orderId = await stripePayments.webhook(req.body, req.get('stripe-signature') ?? '');
+    if (orderId) await emailProvider.sendOrderDeliveryEmail(orderId);
+    res.json({ received: true });
+  }));
   // Never serve arbitrary files from the upload directory, including legacy SVG/HTML uploads.
   app.get('/uploads/:filename', asyncRoute(async (req, res) => {
     const filename = String(req.params.filename);
@@ -151,6 +168,7 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
     next();
   }));
   app.use(auth.load);
+  app.use(asyncRoute(async (_req, _res, next) => { await initializePayments(); next(); }));
   app.use('/api/auth', auth.router);
   app.use(supplierAdministration(prisma));
 
@@ -179,7 +197,7 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
 
   const isDevelopment = () => process.env.NODE_ENV === 'development';
   const requireMockPayment: RequestHandler = (_req, res, next) => {
-    if (!isDevelopment() || process.env.ALLOW_MOCK_PAYMENT !== 'true') {
+    if (!isDevelopment() || process.env.ALLOW_MOCK_PAYMENT !== 'true' || paymentSettings.provider !== 'DUMMY') {
       return res.status(403).json({ error: 'Mock payment must be explicitly enabled in development.' });
     }
     next();
@@ -294,6 +312,44 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
 
   const paymentProvider = new DummyPaymentProvider();
   const emailProvider = new DummyEmailProvider();
+  const checkoutLimit = createRateLimit(20, 60000);
+  const ownedPaymentOrder = async (req: express.Request) => {
+    const order = await prisma.order.findUnique({ where: { id: String(req.params.orderId) }, include: { payment: true } });
+    // Local mock Admin is deliberately not a payment owner or refund administrator.
+    if (!order || !order.userId || !(order.userId === req.account?.id || order.userId === req.guestCustomerId || req.account?.role === 'ADMIN')) throw new PaymentError(404, 'Order not found.');
+    return order;
+  };
+  app.get('/api/payments/config', (_req, res) => res.set('Cache-Control', 'no-store').json({ provider: paymentSettings.provider, mockEnabled: paymentSettings.provider === 'DUMMY' && process.env.ALLOW_MOCK_PAYMENT === 'true' }));
+  app.post('/api/orders/:orderId/checkout', checkoutLimit, asyncRoute(async (req, res) => {
+    if (!stripePayments || security.remote) throw new PaymentError(503, 'Stripe payments are disabled in this profile.');
+    if (!z.object({}).strict().safeParse(req.body).success) throw new PaymentError(400, 'Checkout accepts no price or redirect overrides.');
+    const order = await ownedPaymentOrder(req);
+    res.json(await stripePayments.checkout(order.id));
+  }));
+  app.get('/api/orders/:orderId/payment-status', asyncRoute(async (req, res) => {
+    const order = await ownedPaymentOrder(req);
+    res.set('Cache-Control', 'no-store').json({ orderStatus: order.status, paymentStatus: order.payment?.status, provider: order.payment?.provider, totalCents: order.totalCents, currency: order.currency, refundedCents: order.payment?.refundedCents ?? 0 });
+  }));
+  app.post('/api/orders/:orderId/cancel-payment', checkoutLimit, asyncRoute(async (req, res) => {
+    if (!stripePayments || security.remote) throw new PaymentError(503, 'Stripe payments are disabled in this profile.');
+    if (!z.object({}).strict().safeParse(req.body).success) throw new PaymentError(400, 'Invalid cancellation.');
+    res.json(await stripePayments.cancel((await ownedPaymentOrder(req)).id));
+  }));
+  app.post('/api/orders/:orderId/retry-delivery', checkoutLimit, asyncRoute(async (req, res) => {
+    const order = await ownedPaymentOrder(req);
+    await emailProvider.sendOrderDeliveryEmail(order.id);
+    res.json({ ok: true });
+  }));
+  app.post('/api/admin/orders/:orderId/refund', requireAccount('ADMIN'), checkoutLimit, asyncRoute(async (req, res) => {
+    if (!stripePayments || security.remote) throw new PaymentError(503, 'Stripe payments are disabled in this profile.');
+    if (!z.object({}).strict().safeParse(req.body).success) throw new PaymentError(400, 'Refund amounts are determined by the server.');
+    res.json(await stripePayments.refund(String(req.params.orderId), req.account!.id));
+  }));
+  app.get('/api/admin/orders/:orderId/payment-history', requireAccount('ADMIN'), asyncRoute(async (req, res) => {
+    const payment = await prisma.payment.findUnique({ where: { orderId: String(req.params.orderId) }, include: { events: { orderBy: { createdAt: 'asc' } }, refunds: true } });
+    if (!payment) throw new PaymentError(404, 'Order not found.');
+    res.set('Cache-Control', 'no-store').json({ events: payment.events, refunds: payment.refunds });
+  }));
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, status: 'healthy' });
@@ -435,7 +491,7 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
           items: { create: categories.map((category) => ({
             categoryId: category.id, categoryName: category.name, priceCents: category.priceCents, quantity: 1,
           })) },
-          payment: { create: { status: 'PENDING', provider: 'DUMMY' } },
+          payment: { create: { status: 'PENDING', provider: paymentSettings.provider } },
           emailDelivery: { create: {
             status: 'NOT_SENT', recipient: parsed.data.customerEmail, subject: `Pedido ${orderNumber}`, body: '', attempts: 0,
           } },
@@ -743,6 +799,7 @@ export function createApp(options: { uploadDirectory?: string; frontendDirectory
     error = authErrorHandler(error);
     if (res.headersSent) return next(error);
     if (error instanceof HttpError) return res.status(error.status).json({ error: error.message });
+    if (error instanceof PaymentError) return res.status(error.status).json({ error: error.message });
     if (error instanceof AuthError) return res.status(error.status).json({ error: error.message, ...(error.code ? { code: error.code } : {}) });
     if (error instanceof DatabasePrisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2002') return res.status(409).json({ error: 'A record with that identifier already exists.' });

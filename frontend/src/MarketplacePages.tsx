@@ -2,7 +2,8 @@ import { useEffect, useState, type FormEvent, type InputHTMLAttributes, type Rea
 import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { apiFetch } from './api';
 import { loadOwnedOrder, orderOutcome, type Order } from './orders';
-import type { AuthState } from './stores';
+import { cartStore, type AuthState } from './stores';
+import { hostedCheckoutUrl, paymentHeading, settleStripeCart } from './payments';
 import { useActiveTheme } from './Appearance';
 import { isDemo } from './deployment';
 
@@ -18,7 +19,7 @@ const inputClass = 'mt-1 w-full rounded-lg border border-line-strong px-3 py-2';
 const money = (cents: number) => new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' }).format(cents / 100);
 const message = (error: unknown) => error instanceof Error ? error.message : 'Não foi possível concluir o pedido.';
 
-function Shell({ children }: { children: ReactNode }) { return <div className="mx-auto max-w-6xl space-y-5 px-4 py-8">{children}</div>; }
+function Shell({ children }: { children: ReactNode }) { return <div className="mx-auto max-w-6xl v3-space-y-5 px-4 py-8">{children}</div>; }
 function ErrorMessage({ text }: { text?: string | null }) { return text ? <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-700">{text}</p> : null; }
 function Field({ label, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string }) {
   return <label className="block text-sm font-medium text-ink-secondary">{label}<input {...props} className={inputClass} /></label>;
@@ -53,7 +54,7 @@ export function CategoryForm({ category, onSave }: { category: Category | null; 
       onSave(result.item);
     } catch (err) { setError(message(err)); } finally { setBusy(false); }
   };
-  return <form onSubmit={submit} className="space-y-3">
+  return <form onSubmit={submit} className="v3-space-y-3">
     <h3 className="text-lg font-semibold">{category ? 'Editar categoria' : 'Nova categoria'}</h3>
     <div className="grid gap-3 sm:grid-cols-2">
       <Field label="Nome" required minLength={2} maxLength={80} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
@@ -90,15 +91,15 @@ function ContactManager({ category }: { category: Category }) {
       resource.reload();
     } catch (err) { setError(message(err)); } finally { setBusy(false); }
   };
-  return <section className="space-y-4 border-t border-line pt-5">
+  return <section className="v3-space-y-4 border-t border-line pt-5">
     <h3 className="text-lg font-semibold">Contactos privados — {category.name}</h3>
     <ErrorMessage text={resource.error || error} />
     {resource.loading && <p>Carregando contactos...</p>}
-    <ul className="space-y-2">{resource.data?.contacts.map((contact) => <li key={contact.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+    <ul className="v3-space-y-2">{resource.data?.contacts.map((contact) => <li key={contact.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
       <div className="min-w-0 break-words"><p>{contact.supplierName}</p><p className="text-sm text-ink-muted">{contact.email}</p></div>
       <div className="flex gap-2"><button className={secondary} disabled={busy} onClick={() => { setEditing(contact.id); setDraft({ supplierName: contact.supplierName, email: contact.email, telephone: contact.telephone || '', whatsapp: contact.whatsapp || '', website: contact.website || '', notes: contact.notes || '' }); }}>Editar contacto</button><button className={secondary} disabled={busy} onClick={() => remove(contact.id)}>Eliminar contacto</button></div>
     </li>)}</ul>
-    <form onSubmit={save} className="space-y-3">
+    <form onSubmit={save} className="v3-space-y-3">
       <h4 className="font-medium">{editing ? 'Editar contacto' : 'Adicionar contacto'}</h4>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Fornecedor" required minLength={2} maxLength={80} value={draft.supplierName} onChange={(e) => setDraft({ ...draft, supplierName: e.target.value })} />
@@ -124,11 +125,11 @@ export function CategoryManagement({ onChanged }: { onChanged: () => void }) {
     try { await apiFetch('/api/admin/categories/' + encodeURIComponent(category.id), { method: 'DELETE' }); if (selected?.id === category.id) setSelected(null); changed(); }
     catch (err) { setError(message(err)); } finally { setBusy(false); }
   };
-  return <section className={panel + ' space-y-5'}>
+  return <section className={panel + ' v3-space-y-5'}>
     <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Gerir categorias e contactos</h2><button className={secondary} onClick={() => setSelected(null)}>Nova categoria</button></div>
     <ErrorMessage text={error || resource.error} />
     {resource.loading && <p>Carregando categorias...</p>}
-    <ul className="space-y-2">{resource.data?.items.map((category) => <li key={category.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+    <ul className="v3-space-y-2">{resource.data?.items.map((category) => <li key={category.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
       <span>{category.name} · {money(category.priceCents)} · {category.active ? 'Ativa' : 'Inativa'}</span>
       <div className="flex flex-wrap gap-2"><button className={secondary} onClick={() => setSelected(category)}>Editar / Contactos</button><button className={secondary} disabled={busy || !category.active} onClick={() => deactivate(category)}>Desativar</button></div>
     </li>)}</ul>
@@ -153,14 +154,15 @@ export function OrdersPage({ auth, guest = false }: { auth: AuthState | null; gu
   return <Shell><h1 className="text-3xl font-bold">{guest ? 'Compras como convidado' : 'Meus pedidos'}</h1><ErrorMessage text={resource.error} />
     {resource.loading && <p>Carregando pedidos...</p>}
     {resource.data?.items.length === 0 && <p>Ainda não existem pedidos nesta sessão.</p>}
-    <ul className="space-y-3">{resource.data?.items.map((order) => <li key={order.id} className={panel + ' break-words'}><Link className="font-semibold text-brand-500 underline" to={'/orders/' + encodeURIComponent(order.id)}>{order.orderNumber}</Link><p>{order.status} · {money(order.totalCents)}</p></li>)}</ul>
+    <ul className="v3-space-y-3">{resource.data?.items.map((order) => <li key={order.id} className={panel + ' break-words'}><Link className="font-semibold text-brand-500 underline" to={'/orders/' + encodeURIComponent(order.id)}>{order.orderNumber}</Link><p>{order.status} · {money(order.totalCents)}</p></li>)}</ul>
   </Shell>;
 }
 
 export function OrderSummary({ order }: { order: Order }) {
   const outcome = orderOutcome(order);
-  return <section className={panel + ' space-y-3 break-words'}>
-    <h1 className="text-2xl font-bold">{outcome === 'delivered' ? 'Pagamento confirmado' : outcome === 'delivery-pending' ? 'Pagamento confirmado; entrega pendente' : outcome === 'payment-pending' ? 'Pagamento pendente' : 'Pedido indisponível para pagamento'}</h1>
+  return <section className={panel + ' v3-space-y-3 break-words'}>
+    <h1 className="text-2xl font-bold">{order.payment?.provider === 'STRIPE' ? paymentHeading(order) : outcome === 'delivered' ? 'Pagamento confirmado' : outcome === 'delivery-pending' ? 'Pagamento confirmado; entrega pendente' : outcome === 'payment-pending' ? 'Pagamento pendente' : 'Pedido indisponível para pagamento'}</h1>
+    {order.payment?.provider === 'STRIPE' && ['PENDING', 'PROCESSING'].includes(order.payment.status) && <p role="status">Aguardamos confirmação segura do Stripe. Voltar do checkout não confirma o pagamento. Pode atualizar este pedido.</p>}
     {outcome === 'delivered' && <p>O email de entrega foi gerado no outbox local.</p>}
     <p><strong>Pedido:</strong> {order.orderNumber}</p><p><strong>Estado:</strong> {order.status}</p><p><strong>Valor:</strong> {money(order.totalCents)}</p><p><strong>Email:</strong> {order.customerEmail}</p>
     <ul>{order.items?.map((item) => <li key={item.categoryId}>{item.categoryName} · {money(item.priceCents)}</li>)}</ul>
@@ -176,7 +178,7 @@ export function EmailHtmlPreview({ html }: { html: string }) {
 
 export function EmailPreview({ delivery }: { delivery: Delivery }) {
   const [showHtml, setShowHtml] = useState(false);
-  return <section className={panel + ' min-w-0 space-y-2 break-words'}><h2 className="font-semibold">{delivery.subject}</h2><p>Destinatário: {delivery.recipient}</p>
+  return <section className={panel + ' min-w-0 v3-space-y-2 break-words'}><h2 className="font-semibold">{delivery.subject}</h2><p>Destinatário: {delivery.recipient}</p>
     {delivery.html && <button type="button" className={secondary} aria-pressed={showHtml} onClick={() => setShowHtml((previous) => !previous)}>{showHtml ? 'Ver texto simples' : 'Ver versão HTML'}</button>}
     {showHtml && delivery.html ? <EmailHtmlPreview html={delivery.html} /> : <pre className="whitespace-pre-wrap break-words font-sans text-sm">{delivery.body}</pre>}
   </section>;
@@ -206,6 +208,21 @@ export function OrderDetailsPage({ auth }: { auth: AuthState | null }) {
   }, [id, key]);
   const current = result?.key === key ? result : null;
   const order = current?.order;
+  useEffect(() => {
+    if (!id || !order || order.payment?.provider !== 'STRIPE') return;
+    try { cartStore.set(settleStripeCart(order, cartStore.getSnapshot(), window.localStorage)); } catch { /* Private storage may be unavailable. */ }
+    if (!['PENDING', 'PROCESSING'].includes(order.payment.status)) return;
+    let active = true, attempts = 0;
+    const timer = window.setInterval(async () => {
+      if (++attempts >= 30) window.clearInterval(timer);
+      try {
+        await apiFetch('/api/orders/' + encodeURIComponent(id) + '/payment-status');
+        const fresh = await loadOwnedOrder(apiFetch, id);
+        if (active && fresh && (fresh.status !== order.status || fresh.payment?.status !== order.payment?.status || fresh.emailDelivery?.status !== order.emailDelivery?.status)) setResult({ key, order: fresh });
+      } catch (error) { if (active) { setActionError(message(error)); window.clearInterval(timer); } }
+    }, 2000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [id, order, key]);
   const deliveryKey = `${key}|${theme}|${emailVersion}`;
   useEffect(() => { setEmailOpen(false); }, [identity]);
   useEffect(() => {
@@ -225,7 +242,13 @@ export function OrderDetailsPage({ auth }: { auth: AuthState | null }) {
         setEmailOpen(true);
         setEmailVersion((previous) => previous + 1);
       } else {
-        await apiFetch('/api/dev/payments/' + encodeURIComponent(id) + '/simulate', { method: 'POST' });
+        if (order?.payment?.provider === 'STRIPE') {
+          if (order.payment.status === 'PAID') await apiFetch('/api/orders/' + encodeURIComponent(id) + '/retry-delivery', { method: 'POST', body: '{}' });
+          else {
+            const session = await apiFetch<{ url: string | null }>('/api/orders/' + encodeURIComponent(id) + '/checkout', { method: 'POST', body: '{}' });
+            if (session.url) { window.location.assign(hostedCheckoutUrl(session.url)); return; }
+          }
+        } else await apiFetch('/api/dev/payments/' + encodeURIComponent(id) + '/simulate', { method: 'POST' });
         setVersion((value) => value + 1);
       }
     } catch (error) { setActionError(message(error)); } finally { setBusy(false); }
@@ -233,7 +256,18 @@ export function OrderDetailsPage({ auth }: { auth: AuthState | null }) {
   return <Shell>
     {!id ? <p>Nenhum pedido selecionado. Consulte os seus pedidos para verificar o pagamento.</p> : !current ? <p>A verificar o pedido...</p> : <ErrorMessage text={current.error} />}
     {order && <><OrderSummary order={order} />
-      {['payment-pending', 'delivery-pending'].includes(orderOutcome(order)) && <button className={button} disabled={busy} onClick={() => act(false)}>{orderOutcome(order) === 'payment-pending' ? 'Simular pagamento' : 'Repetir entrega'}</button>}
+      {(order.payment?.provider === 'STRIPE' ? ['PENDING', 'FAILED', 'CANCELLED'].includes(order.payment.status) || orderOutcome(order) === 'delivery-pending' : ['payment-pending', 'delivery-pending'].includes(orderOutcome(order))) && <button className={button} disabled={busy} onClick={() => act(false)}>{orderOutcome(order) === 'delivery-pending' ? 'Repetir entrega' : order.payment?.provider === 'STRIPE' ? 'Pagar no Stripe' : 'Simular pagamento'}</button>}
+      {order.payment?.provider === 'STRIPE' && <button className={secondary} disabled={busy} onClick={() => setVersion((value) => value + 1)}>Atualizar estado</button>}
+      {order.payment?.provider === 'STRIPE' && order.payment.status === 'PENDING' && <button className={secondary} disabled={busy} onClick={async () => {
+        setBusy(true); setActionError(null);
+        try { await apiFetch(`/api/orders/${encodeURIComponent(order.id)}/cancel-payment`, { method: 'POST', body: '{}' }); setVersion((value) => value + 1); }
+        catch (error) { setActionError(message(error)); } finally { setBusy(false); }
+      }}>Cancelar sessão de pagamento</button>}
+      {auth?.authenticated && auth.role === 'ADMIN' && order.payment?.provider === 'STRIPE' && order.payment.status === 'PAID' && <button className={secondary} disabled={busy} onClick={async () => {
+        setBusy(true); setActionError(null);
+        try { const response = await apiFetch<{ status: string }>(`/api/admin/orders/${encodeURIComponent(order.id)}/refund`, { method: 'POST', body: '{}' }); if (response.status !== 'SUCCEEDED') setActionError('Reembolso em processamento. Atualize o estado antes de repetir.'); setVersion((value) => value + 1); }
+        catch (error) { setActionError(message(error)); } finally { setBusy(false); }
+      }}>Reembolsar valor restante</button>}
       {orderOutcome(order) === 'delivered' && <button className={secondary} disabled={busy} onClick={() => act(true)}>Ver email de entrega</button>}
       {emailOpen && email?.key === deliveryKey && orderOutcome(order) === 'delivered' && <EmailPreview delivery={email.delivery} />}
       {emailOpen && email?.key !== deliveryKey && orderOutcome(order) === 'delivered' && !actionError && <p role="status">A preparar email…</p>}
@@ -252,7 +286,7 @@ export function EmailOutboxPage({ auth }: { auth: AuthState | null }) {
   return <Shell><h1 className="text-3xl font-bold">Outbox de emails</h1><ErrorMessage text={resource.error || error} />
     {resource.loading && <p>Carregando emails...</p>}
     {resource.data?.items.length === 0 && <p>Sem emails na outbox.</p>}
-    {resource.data?.items.map((item) => <div key={item.id} className="space-y-2"><p>{item.status} · Tentativas: {item.attempts}</p>
+    {resource.data?.items.map((item) => <div key={item.id} className="v3-space-y-2"><p>{item.status} · Tentativas: {item.attempts}</p>
       {item.body ? <EmailPreview delivery={item} /> : <p>Email ainda não enviado.</p>}
       {item.status === 'FAILED' && <button className={secondary} disabled={busy} onClick={async () => {
         setBusy(true); setError(null);

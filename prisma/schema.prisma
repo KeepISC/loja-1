@@ -121,6 +121,7 @@ model Order {
   customerEmail String
   status        String         @default("PENDING")
   totalCents    Int
+  currency      String @default("EUR")
   createdAt     DateTime       @default(now())
   user          User?          @relation(fields: [userId], references: [id])
   items         OrderItem[]
@@ -152,6 +153,11 @@ model Payment {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   confirmedAt DateTime?
+  paymentIntentId String? @unique
+  refundedCents Int @default(0)
+  attempts PaymentAttempt[]
+  events PaymentEvent[]
+  refunds PaymentRefund[]
   order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }
 
@@ -167,4 +173,47 @@ model EmailDelivery {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model PaymentAttempt {
+  id String @id @default(uuid())
+  paymentId String
+  status String @default("CREATING")
+  sessionId String? @unique
+  intentId String? @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId, createdAt])
+}
+
+model PaymentEvent {
+  id String @id @default(uuid())
+  eventId String? @unique
+  paymentId String
+  kind String
+  status String
+  amountCents Int
+  currency String
+  actorId String?
+  createdAt DateTime @default(now())
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId, createdAt])
+}
+
+model PaymentRefund {
+  id String @id @default(uuid())
+  paymentId String
+  providerRefundId String? @unique
+  amountCents Int
+  status String @default("REQUESTED")
+  actorId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId, createdAt])
 }

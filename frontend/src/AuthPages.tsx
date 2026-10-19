@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { apiFetch } from './api';
 import { authStore, type AuthState } from './stores';
 
-const panel = 'mx-auto my-8 max-w-lg space-y-4 rounded-2xl border border-line bg-surface p-6 text-ink shadow-sm';
+const panel = 'mx-auto my-8 max-w-lg v3-space-y-4 rounded-2xl border border-line bg-surface p-6 text-ink shadow-sm';
 const input = 'mt-1 w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-ink';
 const button = 'rounded-lg bg-action px-4 py-2 text-action-ink disabled:opacity-50';
 type Flow = 'login' | 'register' | 'verify-email' | 'forgot-password' | 'reset-password' | 'resend-verification';
@@ -61,7 +61,7 @@ export function AuthPage({ flow }: { flow: Flow }) {
   };
   return <section className={panel} key={flow}>
     <h1 className="text-2xl font-bold">{titles[flow]}</h1>
-    {!message && <form onSubmit={submit} className="space-y-4">
+    {!message && <form onSubmit={submit} className="v3-space-y-4">
       {flow === 'register' && <label className="block">Nome<input className={input} required minLength={2} maxLength={80} autoComplete="name" value={displayName} onChange={(event) => setName(event.target.value)} /></label>}
       {needsEmail && <label className="block">Email<input className={input} type="email" required maxLength={254} autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>}
       {needsPassword && <label className="block">Senha<input className={input} type="password" required minLength={12} maxLength={128} autoComplete={flow === 'login' ? 'current-password' : 'new-password'} value={password} onChange={(event) => setPassword(event.target.value)} /><span className="text-sm text-ink-muted">12–128 caracteres.</span></label>}

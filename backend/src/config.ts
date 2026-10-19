@@ -11,6 +11,7 @@ export const uploadDir = path.join(publicDir, 'uploads');
 // datasource or placing secrets in the tracked environment template.
 config({ path: path.join(projectRoot, '.env.auth.local') });
 config({ path: path.join(projectRoot, '.env.auth-email.local') });
+config({ path: path.join(projectRoot, '.env.stripe.local') });
 config({ path: path.join(projectRoot, '.env') });
 process.env.DATABASE_URL ??= `file:${path.join(projectRoot, 'database', 'dev.db').replaceAll('\\', '/')}`;
 

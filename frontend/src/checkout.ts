@@ -13,15 +13,21 @@ type Attempt = { key: string; signature: string; orderId?: string };
 
 export function createCheckout(api: Api, storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>, identity: () => string = () => '') {
   let attempt: Attempt | undefined;
+  let persisted = false;
   try {
     const saved = JSON.parse(storage?.getItem('supplier-checkout') || 'null');
     if (saved && typeof saved.key === 'string' && typeof saved.signature === 'string'
-      && (saved.orderId === undefined || typeof saved.orderId === 'string')) attempt = saved;
+      && (saved.orderId === undefined || typeof saved.orderId === 'string')) { attempt = saved; persisted = true; }
   } catch { /* Start a new checkout when persisted state is unavailable. */ }
-  const persist = () => { try { storage?.setItem('supplier-checkout', JSON.stringify(attempt)); } catch { /* Retain in memory. */ } };
+  const persist = () => { try { if (storage) { storage.setItem('supplier-checkout', JSON.stringify(attempt)); persisted = true; } } catch { /* Retain in memory. */ } };
   return {
-    async complete(cart: CartItem[], email: string): Promise<DeliveredOrder> {
+    async complete(cart: CartItem[], email: string, provider: 'DUMMY' | 'STRIPE' = 'DUMMY'): Promise<DeliveredOrder & { checkoutUrl?: string | null }> {
       if (!cart.length) throw new Error('Adicione pelo menos um item ao carrinho.');
+      // The confirmation page clears the durable attempt after verified payment.
+      // Also release this tab's cached copy so a later purchase can create an order.
+      if (provider === 'STRIPE' && persisted && storage) {
+        try { if (!storage.getItem('supplier-checkout')) { attempt = undefined; persisted = false; } } catch { /* Preserve a resumable attempt if storage is inaccessible. */ }
+      }
       const ids = [...new Set(cart.map((item) => item.categoryId))].sort();
       const account = identity();
       const signature = JSON.stringify({ ids, email, ...(account ? { account } : {}) });
@@ -34,6 +40,11 @@ export function createCheckout(api: Api, storage?: Pick<Storage, 'getItem' | 'se
         });
         attempt.orderId = response.order.id;
         persist();
+      }
+      if (provider === 'STRIPE') {
+        const session = await api<{ url: string | null }>('/api/orders/' + encodeURIComponent(attempt.orderId) + '/checkout', { method: 'POST', body: '{}' });
+        const result = await api<{ order: DeliveredOrder }>('/api/orders/' + encodeURIComponent(attempt.orderId));
+        return { ...result.order, checkoutUrl: session.url };
       }
       const result = await api<{ order: DeliveredOrder }>('/api/dev/payments/' + encodeURIComponent(attempt.orderId) + '/simulate', { method: 'POST' });
       if (result.order.status !== 'PAID' || result.order.emailDelivery?.status !== 'SENT') {

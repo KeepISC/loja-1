@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { StaticRouter } from 'react-router-dom/server.js';
+import { StaticRouter } from 'react-router-dom';
 import { EmailThemePreview, emailPreviewUrl, emailTypes } from '../src/EmailThemePreview.tsx';
 import { themeStore } from '../src/Appearance.tsx';
 import { themes } from '../src/themes.ts';

@@ -5,7 +5,7 @@ export type Order = {
   status: string;
   totalCents: number;
   items?: Array<{ categoryId: string; categoryName: string; priceCents: number; quantity: number }>;
-  payment?: { status: string } | null;
+  payment?: { status: string; provider?: string } | null;
   emailDelivery?: { status: string } | null;
 };
 

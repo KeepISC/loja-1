@@ -11,7 +11,9 @@
     "start": "npm run start --workspace backend",
     "start:remote": "npm run build --workspace backend && cross-env NODE_ENV=production npm run build --workspace frontend && cross-env REMOTE_TESTING=true node backend/dist/index.js",
     "test": "npm run test --workspaces",
-    "typecheck": "npm run typecheck --workspaces"
+    "typecheck": "npm run typecheck --workspaces",
+    "verify": "npm run verify:ci",
+    "verify:ci": "npm run typecheck && tsc --noEmit -p frontend/tsconfig.node.json && cross-env NODE_ENV=production npm run build && cross-env NODE_ENV=production npm run build:pages --workspace frontend && npm --ignore-scripts test --workspaces && npm --ignore-scripts run test:database --workspace backend && npm --ignore-scripts run test:auth --workspace backend && npm --ignore-scripts run test:stripe --workspace backend"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
