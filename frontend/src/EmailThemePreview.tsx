@@ -38,7 +38,7 @@ export function EmailThemePreview({ auth }: { auth: AuthState | null }) {
   }, [allowed, key, theme, type]);
   if (!allowed) return null;
   const current = result?.key === key ? result : null;
-  return <section className="appearance-panel space-y-4" aria-labelledby="email-theme-title">
+  return <section className="appearance-panel v3-space-y-4" aria-labelledby="email-theme-title">
     <div className="appearance-heading">
       <div><p className="theme-eyebrow">EMAILS / PRÉ-VISUALIZAÇÃO</p><h2 id="email-theme-title" className="text-2xl font-bold">O mesmo tema, também no email.</h2></div>
       <p className="text-sm text-ink-muted">Tema: <strong>{themes.find((item) => item.id === theme)?.name}</strong>. Acompanha o tema da loja ou a sua pré-visualização.</p>

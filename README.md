@@ -6,12 +6,22 @@ Acceptance status: **NOT READY for v1.0 sign-off**. The recorded verification pa
 
 Only fictional development fixtures belong in this repository. Local environment files, SQLite databases, uploaded files and generated outbox data are excluded from version control; preserve them locally and initialize demo data separately on another computer.
 
+Repository contribution and security rules are in [AGENTS.md](AGENTS.md) and
+[SECURITY.md](SECURITY.md). See [GitHub governance and CI](docs/github-governance.md)
+for required checks, manual GitHub settings, migration review, dependency risks
+and the feature-branch/PR/squash/tag workflow. After installing dependencies and
+generating the SQLite Prisma client, run `npm run verify:ci` for consolidated
+types, production/demo builds, general tests and isolated SQLite integration.
+MySQL is checked separately in a disposable CI service. Production remains disabled.
+For the first feature-branch publication and hosted checks, follow the
+[publication plan](docs/publication-plan.md) and its exact staging allowlist.
+
 ## Stack
 
 - Frontend: React + TypeScript + Vite + Tailwind CSS
 - Backend: Node.js + Express + TypeScript
 - Database: SQLite + Prisma ORM
-- Mock providers: payments and order emails remain local; authentication emails support private preview or configurable SMTP
+- Payments: explicit local mock mode or Stripe-hosted Checkout; order emails remain local, authentication emails support preview or SMTP
 
 ## Local setup
 
@@ -154,6 +164,11 @@ Run `npm run typecheck` for both TypeScript projects and `npm run build` for bot
 Backend compilation (`npm run build --workspace backend`) uses the installed Prisma client and TypeScript; generation is the separate setup command above and is needed again if the Prisma schema changes. `npm start` rebuilds the backend before launching it, so an old `dist` cannot silently bypass source fixes. Backend tests also build first and exercise the actual compiled app as well as the source. `npm start` serves the API only; run `npm run dev --workspace frontend` in a second terminal for the browser UI. No command enables production use: a production/staging backend start must fail closed.
 
 ## Notes
+
+Stripe Checkout, signed webhooks, payment status, cancellations and real-Admin
+refunds are documented in [docs/stripe-checkout.md](docs/stripe-checkout.md).
+Automated Stripe tests use mocked SDK calls and signed fixtures on SQLite/MySQL;
+no real charges were made. Production startup remains disabled.
 
 - Supplier contacts are private and excluded from public category responses.
 - Prices are always recalculated on the backend from database values.

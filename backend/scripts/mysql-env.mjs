@@ -36,7 +36,7 @@ export function testEnvironment({ allowPlaceholder = false } = {}) {
     ...process.env, DATABASE_URL: config.DATABASE_URL, NODE_ENV: 'development',
     SESSION_SECRET: config.SESSION_SECRET, REMOTE_TESTING: 'false', REMOTE_ORIGIN: '',
     ALLOW_MOCK_PAYMENT: 'true', MYSQL_INTEGRATION: 'true',
-    AUTH_EMAIL_TRANSPORT: 'preview', AUTH_APP_ORIGIN: 'http://localhost:5173',
+    PAYMENT_PROVIDER: 'mock', AUTH_EMAIL_TRANSPORT: 'preview', AUTH_APP_ORIGIN: 'http://localhost:5173',
   };
 }
 

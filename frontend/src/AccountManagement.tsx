@@ -3,7 +3,7 @@ import { apiFetch } from './api';
 import type { AuthState } from './stores';
 import { EmailPreview } from './MarketplacePages';
 
-const panel = 'mx-auto my-8 max-w-5xl space-y-4 rounded-2xl border border-line bg-surface p-6 text-ink';
+const panel = 'mx-auto my-8 max-w-5xl v3-space-y-4 rounded-2xl border border-line bg-surface p-6 text-ink';
 const button = 'rounded-lg border border-line-strong px-3 py-2 disabled:opacity-50';
 const input = 'w-full rounded-lg border border-line-strong bg-surface p-2 text-ink';
 type Contact = { id: string; categoryId: string; supplierName: string; email: string; telephone: string | null; whatsapp: string | null; website: string | null; notes: string | null; supplierId: string | null };
@@ -28,7 +28,7 @@ export function SupplierContacts({ auth }: { auth: AuthState | null }) {
   };
   return <section className={panel}><h1 className="text-2xl font-bold">Meus contactos atribuídos</h1>{error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
     {!contacts.length && <p>Nenhum contacto atribuído.</p>}
-    {contacts.map((contact) => <form key={contact.id} onSubmit={(event) => save(event, contact)} className="space-y-3 rounded-lg border border-line p-4">
+    {contacts.map((contact) => <form key={contact.id} onSubmit={(event) => save(event, contact)} className="v3-space-y-3 rounded-lg border border-line p-4">
       {(['supplierName', 'email', 'telephone', 'whatsapp', 'website', 'notes'] as const).map((field) => <label key={field} className="block">{{ supplierName: 'Nome', email: 'Email', telephone: 'Telefone', whatsapp: 'WhatsApp', website: 'Website', notes: 'Notas' }[field]}<input className={input} type={field === 'email' ? 'email' : 'text'} required={field === 'email' || field === 'supplierName'} maxLength={field === 'notes' ? 1500 : field === 'website' ? 200 : field === 'email' ? 254 : 80} value={contact[field] ?? ''} onChange={(event) => setContacts((rows) => rows.map((row) => row.id === contact.id ? { ...row, [field]: event.target.value } : row))} /></label>)}
       <button className={button} disabled={busy}>Guardar contacto</button>
     </form>)}

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { StaticRouter } from 'react-router-dom/server.js';
+import { StaticRouter } from 'react-router-dom';
 import postcss from 'postcss';
 import App from '../src/App.tsx';
 import { cartStore, authStore } from '../src/stores.ts';

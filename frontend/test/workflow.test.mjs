@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { StaticRouter } from 'react-router-dom/server.js';
+import { StaticRouter } from 'react-router-dom';
 import App from '../src/App.tsx';
 import { createCartStore, createAuthStore, cartStore, authStore } from '../src/stores.ts';
 import { createCheckout } from '../src/checkout.ts';

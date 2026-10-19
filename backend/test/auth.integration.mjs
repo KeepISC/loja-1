@@ -21,6 +21,7 @@ else {
 process.env.NODE_ENV = 'development'; process.env.REMOTE_TESTING = 'false'; process.env.REMOTE_ORIGIN = '';
 process.env.SESSION_SECRET = mysql ? process.env.SESSION_SECRET : 'fictional-auth-integration-stable-session-key';
 process.env.ALLOW_MOCK_PAYMENT = 'true';
+process.env.PAYMENT_PROVIDER = 'mock';
 process.env.AUTH_EMAIL_TRANSPORT = 'preview'; process.env.AUTH_APP_ORIGIN = 'http://localhost:5173';
 const { createApp, prisma } = await import('../dist/app.js');
 const { PrismaClient } = await import('../dist/database.js');

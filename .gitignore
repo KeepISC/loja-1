@@ -12,6 +12,9 @@
 credentials*.json
 secrets*.json
 service-account*.json
+*.jks
+*.keystore
+*.tfstate*
 id_rsa*
 id_ed25519*
 
@@ -25,6 +28,8 @@ id_ed25519*
 *.sqlite3-*
 *.wal
 *.shm
+*.sql.gz
+*.sql.zip
 
 # Private uploads, contact exports and generated email deliveries.
 uploads/
@@ -38,6 +43,8 @@ private/
 customer-files/
 supplier-contacts*.csv
 supplier-contacts*.json
+email-previews/
+auth-email-previews/
 
 # Dependencies and generated artifacts.
 node_modules/
@@ -47,8 +54,13 @@ coverage/
 .vite/
 .cache/
 *.tsbuildinfo
+.prisma/
+prisma/generated/
+backend/generated/
+frontend/generated/
 
 # Temporary files, logs and local editor/agent state.
+/audit-*.json
 tmp/
 temp/
 logs/

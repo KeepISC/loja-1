@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Application startup remains in guarded development mode, including during tests.
+# Vite's build command still produces production assets.
+env:
+  NODE_ENV: development
+  REMOTE_TESTING: 'false'
+  REMOTE_ORIGIN: ''
+  DATABASE_URL: file:../database/ci-unused.db
+  SESSION_SECRET: fictional-ci-session-secret-at-least-32-characters
+  ALLOW_MOCK_PAYMENT: 'true'
+  PAYMENT_PROVIDER: mock
+  AUTH_EMAIL_TRANSPORT: preview
+  AUTH_APP_ORIGIN: http://localhost:5173
+  PAYMENT_APP_ORIGIN: http://localhost:5173
+  MYSQL_INTEGRATION: 'false'
+
+jobs:
+  verify:
+    name: Verify / Node 24 + SQLite
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run db:generate --workspace backend
+      - name: Types, production and demo builds, unit and SQLite integration tests
+        run: npm run verify:ci
+
+  mysql:
+    name: Integration / MySQL 8
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: fictional-ci-root-password
+          MYSQL_DATABASE: loja1_test
+          MYSQL_USER: loja1_test_app
+          MYSQL_PASSWORD: fictional-ci-app-password
+        ports:
+          - 127.0.0.1:3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci --no-audit --no-fund
+      # Only this fresh hosted runner/service is initialized. No repository secrets.
+      - name: Create ignored configuration for disposable MySQL
+        shell: bash
+        run: |
+          test "$GITHUB_ACTIONS" = true
+          test ! -e .env.mysql.test
+          umask 077
+          cat > .env.mysql.test <<'ENV'
+          NODE_ENV=development
+          DATABASE_URL=mysql://loja1_test_app:fictional-ci-app-password@localhost:3306/loja1_test
+          SESSION_SECRET=fictional-ci-mysql-session-secret-over-32-characters
+          ENV
+          git check-ignore -q .env.mysql.test
+      - run: npm run mysql:generate --workspace backend
+      - run: npm run mysql:inspect --workspace backend
+      - name: Replay existing migrations on disposable service only
+        run: npm run mysql:migrate --workspace backend
+      - run: npm run build --workspace backend
+      # Each suite preflights the server again. Skip only repeated build hooks.
+      - run: npm --ignore-scripts run test:mysql --workspace backend
+      - run: npm --ignore-scripts run test:auth:mysql --workspace backend
+      - run: npm --ignore-scripts run test:stripe:mysql --workspace backend
+      - name: Remove disposable environment file
+        if: always()
+        shell: bash
+        run: rm -f -- .env.mysql.test
+
+  audit:
+    name: Security / npm audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      # npm audit reads the lockfile; no install or lifecycle hooks are needed.
+      - name: Production dependencies (high and critical gate)
+        run: npm audit --omit=dev --audit-level=high --offline=false
+      - name: All dependencies (high and critical gate)
+        if: ${{ !cancelled() }}
+        run: npm audit --audit-level=high --offline=false

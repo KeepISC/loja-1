@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { authStore, cartStore, type AuthState, type Role } from './stores';
 import { createCheckout } from './checkout';
+import { hostedCheckoutUrl } from './payments';
 import { apiFetch } from './api';
 import { isDemo } from './deployment';
 import { demoNotice } from './demo';
@@ -248,7 +249,7 @@ function CategoryPage({ theme, demo }: { theme: ThemeId; demo: boolean }) {
 
         <aside className="rounded-2xl border border-line bg-surface p-5 shadow-sm">
           <h2 className="text-lg font-semibold text-ink">Resumo</h2>
-          <ul className="mt-4 space-y-3 text-sm text-ink-secondary">
+          <ul className="mt-4 v3-space-y-3 text-sm text-ink-secondary">
             <li>Preço: {formatMoney(category.priceCents)}</li>
             <li>Fornecedores públicos: {data.supplierContactsCount}</li>
             <li>Estado: {category.active ? 'Ativa' : 'Inativa'}</li>
@@ -275,7 +276,7 @@ function CartPage({ demo, theme }: { demo: boolean; theme: ThemeId }) {
       <div className="mx-auto max-w-4xl">
         <h1 className="text-3xl font-bold text-ink">Carrinho</h1>
         <div className="mt-6 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="space-y-4">
+          <div className="v3-space-y-4">
             {cart.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-line-strong bg-surface p-8 text-center text-ink-secondary">
                 O carrinho está vazio. Explore o catálogo para encontrar fornecedores.
@@ -331,6 +332,13 @@ function CheckoutPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const [payment, setPayment] = useState<{ provider: 'DUMMY' | 'STRIPE'; mockEnabled: boolean } | null>(null);
+  useEffect(() => {
+    let active = true;
+    apiFetch<{ provider: 'DUMMY' | 'STRIPE'; mockEnabled: boolean }>('/api/payments/config')
+      .then((value) => { if (active) setPayment(value); }).catch(() => { if (active) setError('Não foi possível carregar o pagamento. Atualize a página.'); });
+    return () => { active = false; };
+  }, []);
 
   const total = cart.reduce((sum, item) => sum + item.priceCents, 0);
 
@@ -344,8 +352,10 @@ function CheckoutPage() {
     setError(null);
 
     try {
-      const order = await checkout.complete(cart, email);
-      setCart([]);
+      if (!payment || payment.provider === 'DUMMY' && !payment.mockEnabled) throw new Error('O pagamento não está disponível.');
+      const order = await checkout.complete(cart, email, payment.provider);
+      if (order.checkoutUrl) { window.location.assign(hostedCheckoutUrl(order.checkoutUrl)); return; }
+      if (payment.provider === 'DUMMY') setCart([]);
       navigate('/success?orderId=' + encodeURIComponent(order.id), { state: { order } });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro inesperado');
@@ -360,11 +370,11 @@ function CheckoutPage() {
         <h1 className="text-3xl font-bold text-ink">Checkout</h1>
 
         <div className="mt-6 grid gap-5 md:grid-cols-2">
-          <div className="space-y-4 md:col-span-2">
+          <div className="v3-space-y-4 md:col-span-2">
             <label className="block text-sm font-medium text-ink-secondary">
               Email de entrega
               <input
-                className="mt-1 w-full rounded-lg border border-line-strong px-3 py-2 outline-none ring-0 focus:border-brand-500"
+                className="mt-1 w-full rounded-lg border border-line-strong px-3 py-2 outline-hidden ring-0 focus:border-brand-500"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
               />
@@ -392,10 +402,10 @@ function CheckoutPage() {
 
         <button
           onClick={submit}
-          disabled={submitting || cart.length === 0}
+          disabled={submitting || cart.length === 0 || !payment || payment.provider === 'DUMMY' && !payment.mockEnabled}
           className="mt-6 w-full rounded-lg bg-action px-4 py-3 text-sm font-medium text-action-ink disabled:cursor-not-allowed disabled:bg-disabled"
         >
-          {submitting ? 'Processando...' : 'Simular pagamento'}
+          {submitting ? 'Processando...' : payment?.provider === 'STRIPE' ? 'Pagar com cartão no Stripe' : 'Simular pagamento'}
         </button>
       </div>
     </PageShell>
@@ -442,7 +452,7 @@ function AdminPage() {
 
   return (
     <PageShell>
-      <div className="space-y-6">
+      <div className="v3-space-y-6">
         <h1 className="text-3xl font-bold text-ink">Painel administrativo</h1>
 
         {dashboard && (
@@ -461,7 +471,7 @@ function AdminPage() {
 
         <section className="rounded-2xl border border-line bg-surface p-5 shadow-sm">
           <h2 className="text-xl font-semibold text-ink">Pedidos recentes</h2>
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 v3-space-y-3">
             {orders.length === 0 ? (
               <p className="text-sm text-ink-muted">Ainda não existem pedidos.</p>
             ) : (
@@ -484,7 +494,7 @@ function AdminPage() {
         <section className="rounded-2xl border border-line bg-surface p-5 shadow-sm">
           <h2 className="text-xl font-semibold text-ink">Outbox de emails</h2>
           <Link to="/dev/email-outbox" className="text-brand-500 underline">Ver emails de entrega</Link>
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 v3-space-y-3">
             {outbox.length === 0 ? (
               <p className="text-sm text-ink-muted">Sem emails na outbox.</p>
             ) : (

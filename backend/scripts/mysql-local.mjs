@@ -24,7 +24,7 @@ export async function inspectDatabase(prisma) {
   const tables = await prisma.$queryRaw`SELECT TABLE_NAME AS name, ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME`;
   console.log('Verified localhost:3306/loja1_test, expected account, MySQL 8.0.');
   console.log('Existing tables: ' + (tables.map((table) => `${table.name} (${table.engine})`).join(', ') || '(empty)'));
-  const known = new Set(['user', 'category', 'suppliercontact', 'order', 'orderitem', 'payment', 'emaildelivery', 'sitesetting', 'session', '_prisma_migrations', 'account', 'authtoken', 'authemail', 'authratelimit', 'supplierprofile']);
+  const known = new Set(['user', 'category', 'suppliercontact', 'order', 'orderitem', 'payment', 'emaildelivery', 'sitesetting', 'session', '_prisma_migrations', 'account', 'authtoken', 'authemail', 'authratelimit', 'supplierprofile', 'paymentattempt', 'paymentevent', 'paymentrefund']);
   if (tables.some((table) => !known.has(table.name.toLowerCase()))) throw new LocalMysqlError('Unexpected tables found; inspect and back up the test database before migrating.');
   if (tables.length && !tables.some((table) => table.name === '_prisma_migrations')) {
     throw new LocalMysqlError('Nonempty database without Prisma migration history; automatic baselining/reset is prohibited.');

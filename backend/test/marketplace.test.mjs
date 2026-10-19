@@ -1,6 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { request as httpRequest } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -19,6 +20,7 @@ sqlite.exec(await readFile(new URL('./schema.sql', import.meta.url), 'utf8'));
 process.env.DATABASE_URL = 'file:' + database.replaceAll('\\', '/');
 process.env.NODE_ENV = 'development';
 process.env.ALLOW_MOCK_PAYMENT = 'true';
+process.env.PAYMENT_PROVIDER = 'mock';
 process.env.AUTH_EMAIL_TRANSPORT = 'preview'; process.env.AUTH_APP_ORIGIN = 'http://localhost:5173';
 process.env.SESSION_SECRET = 'fictional-regression-session-secret';
 const { createApp, prisma } = await import('../src/app.ts');
@@ -260,6 +262,64 @@ test('S04: reject HTML, SVG, MIME spoofing, oversized files and unauthorized upl
     assert.equal(result.status, 400, filename);
   }
   assert.equal((await request(server).post(`/api/admin/categories/${a.id}/image`).attach('image', Buffer.from('not an image'), { filename: 'x.png', contentType: 'image/png' })).status, 403);
+});
+
+test('S04: malformed multipart and oversized field indices fail safely without writing uploads', async () => {
+  const beforeFiles = await readdir(uploads);
+  const beforeCategory = await prisma.category.findUniqueOrThrow({ where: { id: a.id } });
+  const url = `/api/admin/categories/${a.id}/image`;
+  for (const [contentType, body] of [
+    ['multipart/form-data', 'missing boundary'],
+    ['multipart/form-data; boundary=fixture', '--fixture\r\nContent-Disposition: form-data; name="image"; filename="partial.png"\r\nContent-Type: image/png\r\n\r\ntruncated'],
+  ]) {
+    const response = await admin.post(url).set(await csrfHeaders(admin)).set('Content-Type', contentType).send(body).timeout({ deadline: 5000 });
+    assert.equal(response.status, 400);
+    assert.deepEqual(response.body, { error: 'Invalid image upload.' });
+  }
+  const fields = await admin.post(url).set(await csrfHeaders(admin))
+    .field('items[4294967294]', 'fictional').field('items[key]', 'fictional').timeout({ deadline: 5000 });
+  assert.equal(fields.status, 400);
+  assert.deepEqual(fields.body, { error: 'Invalid image upload.' });
+  assert.deepEqual(await readdir(uploads), beforeFiles);
+  assert.equal((await prisma.category.findUniqueOrThrow({ where: { id: a.id } })).imageUrl, beforeCategory.imageUrl);
+  assert.equal((await admin.get('/api/categories')).status, 200);
+});
+
+test('S04: an interrupted multipart upload leaves no file and the server remains usable', { timeout: 10000 }, async () => {
+  const actor = request.agent(server);
+  const identity = await post(actor, '/api/dev/session', { role: 'ADMIN' });
+  assert.equal(identity.status, 200);
+  const headers = await csrfHeaders(actor);
+  const cookies = identity.headers['set-cookie'].map((cookie) => cookie.split(';')[0]).join('; ');
+  const beforeFiles = await readdir(uploads);
+  const beforeCategory = await prisma.category.findUniqueOrThrow({ where: { id: a.id } });
+  let sawData, sawAbort;
+  const received = new Promise((resolve) => { sawData = resolve; });
+  const aborted = new Promise((resolve) => { sawAbort = resolve; });
+  const observe = (incoming) => {
+    incoming.once('data', sawData);
+    incoming.once('aborted', sawAbort);
+  };
+  server.once('request', observe);
+  const uploadRequest = httpRequest({
+    hostname: '127.0.0.1', port: server.address().port,
+    path: `/api/admin/categories/${a.id}/image`, method: 'POST',
+    headers: { ...headers, Cookie: cookies, 'Content-Type': 'multipart/form-data; boundary=interrupted', 'Content-Length': '100000' },
+  });
+  // Destroying this fictional local request intentionally produces a socket error.
+  uploadRequest.on('error', () => {});
+  try {
+    uploadRequest.write('--interrupted\r\nContent-Disposition: form-data; name="image"; filename="partial.png"\r\nContent-Type: image/png\r\n\r\npartial file');
+    await received;
+    uploadRequest.destroy();
+    await aborted;
+    assert.equal((await actor.get('/api/categories')).status, 200);
+    assert.deepEqual(await readdir(uploads), beforeFiles);
+    assert.equal((await prisma.category.findUniqueOrThrow({ where: { id: a.id } })).imageUrl, beforeCategory.imageUrl);
+  } finally {
+    uploadRequest.destroy();
+    server.removeListener('request', observe);
+  }
 });
 
 test('S04/F05: valid image gets server filename and safe headers; legacy active uploads are blocked', async () => {

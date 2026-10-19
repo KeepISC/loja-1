@@ -34,7 +34,11 @@
     "prepreview:emails": "npm run build",
     "preview:emails": "node scripts/preview-emails.mjs",
     "pretest": "npm run build",
-    "test": "node --import ./test/source-loader.mjs --test --test-isolation=none test/*.test.mjs"
+    "test": "node --import ./test/source-loader.mjs --test --test-isolation=none test/*.test.mjs",
+    "pretest:stripe": "npm run build",
+    "test:stripe": "node --import ./test/source-loader.mjs --test --test-isolation=none test/stripe.integration.mjs",
+    "pretest:stripe:mysql": "npm run build",
+    "test:stripe:mysql": "node --import ./scripts/mysql-test-env.mjs --import ./test/source-loader.mjs --test --test-isolation=none test/stripe.integration.mjs"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -42,10 +46,11 @@
     "dotenv": "^16.4.1",
     "express": "^4.21.1",
     "express-session": "^1.18.1",
-    "multer": "^1.4.5-lts.1",
+    "multer": "^2.4.0",
     "nodemailer": "^10.1.7",
     "prisma": "^5.22.0",
     "sqlite3": "^6.0.1",
+    "stripe": "^23.0.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {

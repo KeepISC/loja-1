@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { StaticRouter } from 'react-router-dom/server.js';
+import { StaticRouter } from 'react-router-dom';
 import postcss from 'postcss';
-import tailwindcss from 'tailwindcss';
-import tailwindConfig from '../tailwind.config.js';
+import postcssConfig from '../postcss.config.js';
 import { createThemeStore, themes } from '../src/themes.ts';
 import { AppearancePanel, themeStore } from '../src/Appearance.tsx';
 import App from '../src/App.tsx';
@@ -117,9 +117,31 @@ test('Themes: all palettes provide readable normal text, action labels, states, 
 });
 
 test('Themes: shared styles and semantic Tailwind utilities compile without Vite subprocesses', async () => {
-  const css = readFileSync(new URL('../src/index.css', import.meta.url), 'utf8').replace(/@import '([^']+)';/g, (_match, file) => readFileSync(new URL('../src/' + file, import.meta.url), 'utf8'));
-  const compiled = await postcss([tailwindcss(tailwindConfig)]).process(css, { from: undefined });
-  for (const name of ['classic', 'dark', 'marketplace', '.theme-preview', '.bg-action', '.bg-surface', '.text-ink', '.border-line']) assert.ok(compiled.css.includes(name), name);
+  const { default: tailwindPostcss } = await import('@tailwindcss/postcss');
+  const cssUrl = new URL('../src/index.css', import.meta.url);
+  const css = readFileSync(cssUrl, 'utf8');
+  const compiled = await postcss([tailwindPostcss({ ...postcssConfig.plugins['@tailwindcss/postcss'], optimize: false })])
+    .process(css, { from: fileURLToPath(cssUrl) });
+  for (const name of ['classic', 'minimal', 'dark', 'marketplace', '.theme-preview', '.bg-action', '.bg-surface', '.text-ink', '.border-line', '.v3-space-y-4']) assert.ok(compiled.css.includes(name), name);
+  assert.doesNotMatch(compiled.css, /<alpha-value>|@config\s|@source\s|@utility\s|--value\(/);
+  for (const [selector, token] of [['.bg-action', '--action'], ['.bg-surface', '--surface'], ['.text-ink', '--ink'], ['.border-line', '--line'], ['.rounded-lg', '--radius-control'], ['.shadow-sm', '--shadow-panel']]) {
+    let found = false;
+    compiled.root.walkRules(selector, (rule) => { found ||= rule.toString().includes(`var(${token})`); });
+    assert.ok(found, `${selector} retains scoped theme token ${token}`);
+  }
+  for (const size of [2, 3, 4, 5, 6]) {
+    let found = false;
+    compiled.root.walkRules(`.v3-space-y-${size} > :not([hidden]) ~ :not([hidden])`, (rule) => {
+      const declarations = Object.fromEntries(rule.nodes.filter((node) => node.type === 'decl').map((node) => [node.prop, node.value]));
+      assert.equal(declarations['margin-top'].replace(/\s/g, ''), `calc(${size}*0.25rem)`);
+      assert.equal(declarations['margin-bottom'], '0');
+      found = true;
+    });
+    assert.ok(found, `v3 spacing behavior for ${size}`);
+  }
+  let fontPreserved = false;
+  compiled.root.walkRules('.font-sans', (rule) => { fontPreserved ||= rule.toString().includes('ui-sans-serif'); });
+  assert.ok(fontPreserved, 'v3 default sans font stack is preserved');
   assert.ok(compiled.css.includes(':focus-visible'));
   assert.ok(compiled.css.includes('prefers-reduced-motion'));
 });
